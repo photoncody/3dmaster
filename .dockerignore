@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+data
+*.db
+.env
+.env.*
+!.env.example
+README.md.bak
+.agents
+.claude
+.windsurf
+skills-lock.json
+coverage
+npm-debug.log*
+Dockerfile
+.dockerignore

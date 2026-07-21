@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Printer {
+  id          String               @id @default(cuid())
+  name        String
+  notes       String               @default("")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  queueItems  PrintQueueItem[]
+  maintenance PrinterMaintenance?
+  timer       PrintTimer?
+}
+
+model Model {
+  id          String           @id @default(cuid())
+  name        String
+  description String           @default("")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  files       ModelFile[]
+  queueItems  PrintQueueItem[]
+}
+
+model ModelFile {
+  id          String   @id @default(cuid())
+  modelId     String
+  model       Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  filename    String
+  format      String
+  storagePath String
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+}
+
+model PrintQueueItem {
+  id        String   @id @default(cuid())
+  printerId String
+  printer   Printer  @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  modelId   String
+  model     Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  position  Int
+  status    String   @default("queued") // queued | printing | done
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([printerId, position])
+}
+
+model FilamentRoll {
+  id              String    @id @default(cuid())
+  name            String
+  manufacturer    String    @default("")
+  material        String    @default("PLA")
+  color           String    @default("")
+  startingGrams   Float
+  remainingGrams  Float
+  rollCount       Int       @default(1)
+  openedFromBag   Boolean   @default(false)
+  lastDriedAt     DateTime?
+  notes           String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model PrinterMaintenance {
+  id                 String    @id @default(cuid())
+  printerId          String    @unique
+  printer            Printer   @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  nozzleInstalledAt  DateTime?
+  lastCleanedAt      DateTime?
+  notes              String    @default("")
+  updatedAt          DateTime  @updatedAt
+}
+
+model PrintTimer {
+  id                String    @id @default(cuid())
+  printerId         String    @unique
+  printer           Printer   @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  startedAt         DateTime?
+  durationSeconds   Int       @default(0)
+  status            String    @default("idle") // idle | running | paused | completed
+  linkedQueueItemId String?
+  pausedRemaining   Int?
+  updatedAt         DateTime  @updatedAt
+}

@@ -1,0 +1,44 @@
+{
+  "name": "3dmaster",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web-based organizer for 3D printing",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "bcryptjs": "^3.0.3",
+    "date-fns": "^4.4.0",
+    "dotenv": "^17.4.2",
+    "next": "15.5.21",
+    "next-auth": "^5.0.0-beta.32",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "three": "^0.185.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.185.1",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.21",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
