@@ -9,7 +9,8 @@ export async function ensureDataDirs(): Promise<void> {
 
 export function sanitizeFilename(name: string): string {
   const base = path.basename(name).replace(/[^\w.\- ()[\]]+/g, "_");
-  return base.slice(0, 200) || "model.bin";
+  const cleaned = base.replace(/^[_]+$/, "").slice(0, 200);
+  return cleaned || "model.bin";
 }
 
 export function getExtension(filename: string): string {

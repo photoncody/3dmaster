@@ -17,3 +17,8 @@ export function rateLimit(
   entry.count += 1;
   return { ok: true, remaining: limit - entry.count };
 }
+
+/** Test helper — clears in-memory rate limit state. */
+export function resetRateLimitStore() {
+  hits.clear();
+}

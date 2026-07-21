@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
+import { isTimerFinished, remainingSeconds } from "@/lib/timer";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -10,25 +11,6 @@ const patchSchema = z.object({
   durationSeconds: z.number().int().min(0).max(60 * 60 * 48).optional(),
   linkedQueueItemId: z.string().nullable().optional(),
 });
-
-function remainingSeconds(timer: {
-  startedAt: Date | null;
-  durationSeconds: number;
-  status: string;
-  pausedRemaining: number | null;
-}): number {
-  if (timer.status === "paused") {
-    return timer.pausedRemaining ?? 0;
-  }
-  if (timer.status === "running" && timer.startedAt) {
-    const elapsed = Math.floor(
-      (Date.now() - timer.startedAt.getTime()) / 1000,
-    );
-    return Math.max(0, timer.durationSeconds - elapsed);
-  }
-  if (timer.status === "completed") return 0;
-  return timer.durationSeconds;
-}
 
 export async function GET(_request: Request, ctx: Ctx) {
   try {
@@ -40,11 +22,7 @@ export async function GET(_request: Request, ctx: Ctx) {
       update: {},
     });
 
-    // Auto-complete if countdown finished
-    if (
-      timer.status === "running" &&
-      remainingSeconds(timer) <= 0
-    ) {
+    if (isTimerFinished(timer)) {
       timer = await prisma.printTimer.update({
         where: { printerId },
         data: { status: "completed", pausedRemaining: 0 },

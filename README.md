@@ -45,6 +45,14 @@ npx prisma migrate dev
 npm run dev
 ```
 
+### Tests
+
+```bash
+npm test
+```
+
+Vitest covers age/color helpers, storage safety, rate limiting, timer math, slicer adapter registration, and API route handlers (printers, filament, models, queue, maintenance, timer, health) against a temporary SQLite database.
+
 ## Authentication
 
 Auth is **off by default** (`AUTH_ENABLED=false`). Only use that on a trusted LAN.

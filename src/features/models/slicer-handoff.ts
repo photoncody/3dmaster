@@ -30,6 +30,10 @@ export function listSlicerAdapters(
   return adapters.filter((a) => a.canHandle(ctx));
 }
 
+export function clearSlicerAdapters() {
+  adapters.length = 0;
+}
+
 export function downloadForSlicer(ctx: SlicerHandoffContext) {
   const a = document.createElement("a");
   a.href = ctx.downloadUrl;
