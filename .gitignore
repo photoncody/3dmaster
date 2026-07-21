@@ -40,6 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# tests
+/coverage
+
 # runtime data (models + sqlite)
 /data/**
 !/data/.gitkeep
