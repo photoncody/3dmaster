@@ -12,6 +12,8 @@ README.md.bak
 .windsurf
 skills-lock.json
 coverage
+tests
+vitest.config.ts
 npm-debug.log*
 Dockerfile
 .dockerignore

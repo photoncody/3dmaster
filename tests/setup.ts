@@ -10,4 +10,3 @@ process.env.DATA_DIR = dataDir;
 process.env.DATABASE_URL = `file:${path.join(dataDir, "3dmaster.db")}`;
 process.env.AUTH_ENABLED = "false";
 process.env.AUTH_SECRET = "test-secret";
-process.env.NODE_ENV = "test";
