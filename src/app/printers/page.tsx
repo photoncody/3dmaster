@@ -58,7 +58,6 @@ export default function PrintersPage() {
     <div>
       <section className="hero">
         <h1>Printers</h1>
-        <p>Each printer has its own queue, maintenance log, and print timer.</p>
       </section>
 
       <div className="panel">
