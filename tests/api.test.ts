@@ -100,6 +100,42 @@ describe("printers API", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("updates printer name, model, and notes", async () => {
+    const { POST } = await import("@/app/api/printers/route");
+    const { PATCH } = await import("@/app/api/printers/[id]/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/printers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Old name",
+          model: "A1",
+          notes: "bay 1",
+        }),
+      }),
+    );
+    const printer = await created.json();
+
+    const updatedRes = await PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "New name",
+          model: "X1C",
+          notes: "bay 2",
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(updatedRes.status).toBe(200);
+    const updated = await updatedRes.json();
+    expect(updated.name).toBe("New name");
+    expect(updated.model).toBe("X1C");
+    expect(updated.notes).toBe("bay 2");
+  });
 });
 
 describe("filament API", () => {

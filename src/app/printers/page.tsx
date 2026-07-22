@@ -130,6 +130,9 @@ export default function PrintersPage() {
               >
                 Delete
               </button>
+              <Link href={`/printers/${p.id}?edit=1`} className="btn secondary">
+                Edit
+              </Link>
             </div>
           ))}
         </div>

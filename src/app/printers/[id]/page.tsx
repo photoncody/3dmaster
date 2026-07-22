@@ -94,6 +94,11 @@ export default function PrinterDetailPage({
   const [localRemaining, setLocalRemaining] = useState(0);
   const [completionFetchPending, setCompletionFetchPending] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [editingPrinter, setEditingPrinter] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editModel, setEditModel] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const primaryDialogButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: printer, error, loading } = useJson<Printer>(
@@ -318,6 +323,50 @@ export default function PrinterDetailPage({
     }
   }
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("edit") === "1") {
+      setEditingPrinter(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!printer || editingPrinter) return;
+    setEditName(printer.name);
+    setEditModel(printer.model);
+    setEditNotes(printer.notes);
+  }, [printer, editingPrinter]);
+
+  function beginEditPrinter() {
+    if (!printer) return;
+    setEditName(printer.name);
+    setEditModel(printer.model);
+    setEditNotes(printer.notes);
+    setEditingPrinter(true);
+    setMutationError(null);
+  }
+
+  async function savePrinter(e: FormEvent) {
+    e.preventDefault();
+    setEditBusy(true);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editName,
+          model: editModel,
+          notes: editNotes,
+        }),
+      });
+      setEditingPrinter(false);
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update printer");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function downloadModel(ctx: SlicerHandoffContext) {
     setMutationError(null);
     try {
@@ -325,6 +374,20 @@ export default function PrinterDetailPage({
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Download failed");
     }
+  }
+
+  async function downloadNextModel() {
+    if (!nextItem?.model.files[0]) {
+      setMutationError("Next model has no files to download");
+      return;
+    }
+    const file = nextItem.model.files[0];
+    await downloadModel({
+      modelId: nextItem.model.id,
+      fileId: file.id,
+      filename: file.filename,
+      downloadUrl: `/api/models/${nextItem.model.id}/files/${file.id}`,
+    });
   }
 
   async function acceptNextModel() {
@@ -344,15 +407,6 @@ export default function PrinterDetailPage({
         await apiJson(`/api/printers/${id}/timer`, {
           method: "PATCH",
           body: JSON.stringify({ action: "complete" }),
-        });
-      }
-      if (nextItem.model.files[0]) {
-        const file = nextItem.model.files[0];
-        await downloadModel({
-          modelId: nextItem.model.id,
-          fileId: file.id,
-          filename: file.filename,
-          downloadUrl: `/api/models/${nextItem.model.id}/files/${file.id}`,
         });
       }
       await startQueueItem(nextItem, seconds);
@@ -385,7 +439,66 @@ export default function PrinterDetailPage({
           {printer.model && printer.notes ? (
             <p className="muted">{printer.notes}</p>
           ) : null}
+          <div className="row" style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() =>
+                editingPrinter ? setEditingPrinter(false) : beginEditPrinter()
+              }
+            >
+              {editingPrinter ? "Cancel edit" : "Edit printer"}
+            </button>
+          </div>
         </section>
+
+        {editingPrinter ? (
+          <div className="panel">
+            <h2 className="section-title">Edit printer</h2>
+            <form className="stack" onSubmit={savePrinter}>
+              <div className="row">
+                <div className="field">
+                  <label htmlFor="edit-printer-name">Name</label>
+                  <input
+                    id="edit-printer-name"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-printer-model">Model</label>
+                  <input
+                    id="edit-printer-model"
+                    value={editModel}
+                    onChange={(e) => setEditModel(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-printer-notes">Notes</label>
+                  <input
+                    id="edit-printer-notes"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="row">
+                <button className="btn" type="submit" disabled={editBusy}>
+                  {editBusy ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setEditingPrinter(false)}
+                  disabled={editBusy}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
 
         {mutationError ? <p className="muted">{mutationError}</p> : null}
         {configError ? <p className="muted">{configError}</p> : null}
@@ -703,9 +816,21 @@ export default function PrinterDetailPage({
           <div className="modal">
             <h2 className="section-title">Print finished</h2>
             <p>
-              Start the next queued model{" "}
-              <strong>{nextItem.model.name}</strong>?
+              Next up: <strong>{nextItem.model.name}</strong>. Download it for
+              your slicer first so you know how long it will take, then start
+              the timer.
             </p>
+            <div className="row" style={{ marginTop: "0.75rem" }}>
+              <button
+                ref={primaryDialogButtonRef}
+                type="button"
+                className="btn"
+                onClick={downloadNextModel}
+                disabled={!nextItem.model.files[0]}
+              >
+                Download for slicer
+              </button>
+            </div>
             <div className="row" style={{ marginTop: "0.75rem" }}>
               <div className="field" style={{ maxWidth: 100 }}>
                 <label htmlFor="next-hours">Hours</label>
@@ -732,12 +857,11 @@ export default function PrinterDetailPage({
             </div>
             <div className="row" style={{ marginTop: "1rem" }}>
               <button
-                ref={primaryDialogButtonRef}
                 type="button"
-                className="btn"
+                className="btn accent"
                 onClick={acceptNextModel}
               >
-                Yes, start next
+                Start next print
               </button>
               <button
                 type="button"
