@@ -1,7 +1,7 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireBootstrapAdmin } from "@/lib/auth";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
 import { config } from "@/lib/config";
 
@@ -12,15 +12,18 @@ const createSchema = z.object({
 
 export async function GET() {
   try {
-    await requireAuth();
+    const session = await requireAuth();
     if (!config.authEnabled) {
-      return jsonOk({ authEnabled: false, users: [] });
+      return jsonOk({ authEnabled: false, canCreateUsers: false, users: [] });
     }
     const users = await prisma.user.findMany({
       select: { id: true, username: true, createdAt: true },
       orderBy: { username: "asc" },
     });
-    return jsonOk({ authEnabled: true, users });
+    const canCreateUsers =
+      Boolean(config.bootstrap.username) &&
+      session?.user?.name === config.bootstrap.username;
+    return jsonOk({ authEnabled: true, canCreateUsers, users });
   } catch (err) {
     return handleApiError(err);
   }
@@ -28,10 +31,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireAuth();
     if (!config.authEnabled) {
       return jsonError("Auth is disabled", 400);
     }
+    await requireBootstrapAdmin();
     const body = createSchema.parse(await request.json());
     const passwordHash = await bcrypt.hash(body.password, 12);
     const user = await prisma.user.create({

@@ -34,12 +34,22 @@ export function clearSlicerAdapters() {
   adapters.length = 0;
 }
 
-export function downloadForSlicer(ctx: SlicerHandoffContext) {
+export async function downloadForSlicer(ctx: SlicerHandoffContext) {
+  const res = await fetch(ctx.downloadUrl, {
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Download failed");
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = ctx.downloadUrl;
+  a.href = objectUrl;
   a.download = ctx.filename;
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
+  URL.revokeObjectURL(objectUrl);
 }

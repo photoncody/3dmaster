@@ -1,11 +1,18 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { config } from "@/lib/config";
 import { ensureDataDirs } from "@/lib/storage";
+import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
+  if (config.authEnabled) {
+    const session = await auth();
+    if (!session?.user) redirect("/login");
+  }
+
   await ensureDataDirs();
   const [printerCount, modelCount, filamentCount] = await Promise.all([
     prisma.printer.count(),

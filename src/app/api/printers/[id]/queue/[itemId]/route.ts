@@ -13,20 +13,26 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     });
     if (!existing) return jsonError("Queue item not found", 404);
 
-    await prisma.printQueueItem.delete({ where: { id: itemId } });
+    await prisma.$transaction(async (tx) => {
+      await tx.printTimer.updateMany({
+        where: { printerId, linkedQueueItemId: itemId },
+        data: { linkedQueueItemId: null },
+      });
+      await tx.printQueueItem.delete({ where: { id: itemId } });
 
-    const remaining = await prisma.printQueueItem.findMany({
-      where: { printerId },
-      orderBy: { position: "asc" },
+      const remaining = await tx.printQueueItem.findMany({
+        where: { printerId },
+        orderBy: { position: "asc" },
+      });
+      await Promise.all(
+        remaining.map((item, index) =>
+          tx.printQueueItem.update({
+            where: { id: item.id },
+            data: { position: index },
+          }),
+        ),
+      );
     });
-    await prisma.$transaction(
-      remaining.map((item, index) =>
-        prisma.printQueueItem.update({
-          where: { id: item.id },
-          data: { position: index },
-        }),
-      ),
-    );
 
     return jsonOk({ ok: true });
   } catch (err) {

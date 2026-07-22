@@ -3,8 +3,13 @@ import Credentials from "next-auth/providers/credentials";
 import type { Provider } from "next-auth/providers";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { config } from "./config";
+import { assertAuthConfig, config } from "./config";
 import { ensureBootstrapUser, prisma } from "./db";
+
+assertAuthConfig();
+
+const DUMMY_HASH =
+  "$2b$10$w3FpYmXEF6VrAVYxIXPuPe.Vi8pD7enbU3timaDHzZjhwzZDGsQlq";
 
 function groupsFromProfile(profile: Record<string, unknown>): string[] {
   const claim = config.oidc.groupClaim;
@@ -22,37 +27,46 @@ function groupsFromProfile(profile: Record<string, unknown>): string[] {
 }
 
 function isInAllowedGroup(groups: string[]): boolean {
-  if (config.oidc.allowedGroups.length === 0) return true;
+  if (config.oidc.allowedGroups.length === 0) {
+    return config.oidcAllowAllGroups;
+  }
   return groups.some((g) => config.oidc.allowedGroups.includes(g));
 }
 
-const providers: Provider[] = [
-  Credentials({
-    name: "Credentials",
-    credentials: {
-      username: { label: "Username", type: "text" },
-      password: { label: "Password", type: "password" },
-    },
-    async authorize(credentials) {
-      const parsed = z
-        .object({
-          username: z.string().min(1),
-          password: z.string().min(1),
-        })
-        .safeParse(credentials);
-      if (!parsed.success) return null;
+const providers: Provider[] = [];
 
-      await ensureBootstrapUser();
-      const user = await prisma.user.findUnique({
-        where: { username: parsed.data.username },
-      });
-      if (!user) return null;
-      const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
-      if (!ok) return null;
-      return { id: user.id, name: user.username };
-    },
-  }),
-];
+if (config.credentialsEnabled) {
+  providers.push(
+    Credentials({
+      name: "Credentials",
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const parsed = z
+          .object({
+            username: z.string().min(1),
+            password: z.string().min(1),
+          })
+          .safeParse(credentials);
+        if (!parsed.success) return null;
+
+        await ensureBootstrapUser();
+        const user = await prisma.user.findUnique({
+          where: { username: parsed.data.username },
+        });
+        if (!user) {
+          await bcrypt.compare(parsed.data.password, DUMMY_HASH);
+          return null;
+        }
+        const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
+        if (!ok) return null;
+        return { id: user.id, name: user.username };
+      },
+    }),
+  );
+}
 
 if (config.oidc.issuer && config.oidc.clientId && config.oidc.clientSecret) {
   providers.push({
@@ -83,7 +97,7 @@ if (config.oidc.issuer && config.oidc.clientId && config.oidc.clientSecret) {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: config.authSecret,
-  trustHost: true,
+  trustHost: config.authTrustHost,
   session: { strategy: "jwt" },
   pages: { signIn: "/login", error: "/login" },
   providers,
@@ -109,6 +123,17 @@ export async function requireAuth() {
   if (!config.authEnabled) return null;
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
+  return session;
+}
+
+export async function requireBootstrapAdmin() {
+  const session = await requireAuth();
+  if (!config.authEnabled) return session;
+
+  const bootstrapUser = config.bootstrap.username;
+  if (!bootstrapUser || session?.user?.name !== bootstrapUser) {
+    throw new Error("Forbidden");
+  }
   return session;
 }
 

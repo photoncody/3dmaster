@@ -6,6 +6,7 @@ import { apiJson, useJson } from "@/lib/client-api";
 
 type UsersResponse = {
   authEnabled: boolean;
+  canCreateUsers?: boolean;
   users: { id: string; username: string; createdAt: string }[];
 };
 
@@ -72,33 +73,39 @@ export default function SettingsPage() {
       {data?.authEnabled ? (
         <div className="panel">
           <h2 className="section-title">Local users</h2>
-          <form className="stack" onSubmit={onCreate}>
-            <div className="row">
-              <div className="field">
-                <label>Username</label>
-                <input
-                  required
-                  minLength={2}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
+          {data.canCreateUsers ? (
+            <form className="stack" onSubmit={onCreate}>
+              <div className="row">
+                <div className="field">
+                  <label>Username</label>
+                  <input
+                    required
+                    minLength={2}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>Password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            </div>
-            {formError ? <p className="muted">{formError}</p> : null}
-            <button className="btn" type="submit" disabled={busy}>
-              Add user
-            </button>
-          </form>
+              {formError ? <p className="muted">{formError}</p> : null}
+              <button className="btn" type="submit" disabled={busy}>
+                Add user
+              </button>
+            </form>
+          ) : (
+            <p className="muted">
+              Only the bootstrap admin can create local users.
+            </p>
+          )}
           <div style={{ marginTop: "1rem" }}>
             {data.users.map((u) => (
               <div key={u.id} className="list-item">

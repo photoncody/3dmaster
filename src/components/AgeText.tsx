@@ -1,4 +1,4 @@
-import { ageLabel, ageLevel, type AgeThresholds } from "@/lib/age-color";
+import { ageLabel, ageLevel, daysSince, type AgeThresholds } from "@/lib/age-color";
 
 export function AgeText({
   date,
@@ -10,20 +10,12 @@ export function AgeText({
   prefix?: string;
 }) {
   const level = ageLevel(date, thresholds);
-  const days =
-    date == null
-      ? null
-      : Math.max(
-          0,
-          Math.floor(
-            (Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24),
-          ),
-        );
+  const days = daysSince(date);
 
   return (
     <span className="age" data-level={level}>
       {prefix}
-      {ageLabel(days)}
+      {days === null ? "Unknown" : ageLabel(days)}
     </span>
   );
 }

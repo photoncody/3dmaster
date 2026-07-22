@@ -40,6 +40,7 @@ export default function ModelsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [expandedViewer, setExpandedViewer] = useState<string | null>(null);
 
   async function onUpload(e: FormEvent) {
@@ -68,8 +69,27 @@ export default function ModelsPage() {
 
   async function onDelete(id: string) {
     if (!confirm("Delete this model and its files from the server?")) return;
-    await apiJson(`/api/models/${id}`, { method: "DELETE" });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/models/${id}`, { method: "DELETE" });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to delete model");
+    }
+  }
+
+  async function onDownload(model: Model, file: ModelFile) {
+    setMutationError(null);
+    try {
+      await downloadForSlicer({
+        modelId: model.id,
+        fileId: file.id,
+        filename: file.filename,
+        downloadUrl: `/api/models/${model.id}/files/${file.id}`,
+      });
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Download failed");
+    }
   }
 
   return (
@@ -126,6 +146,7 @@ export default function ModelsPage() {
         <h2 className="section-title">Library</h2>
         {loading ? <p className="muted">Loading…</p> : null}
         {error ? <p className="muted">{error}</p> : null}
+        {mutationError ? <p className="muted">{mutationError}</p> : null}
         {data?.length === 0 ? (
           <p className="muted">No models yet.</p>
         ) : null}
@@ -163,14 +184,7 @@ export default function ModelsPage() {
                     <button
                       type="button"
                       className="btn"
-                      onClick={() =>
-                        downloadForSlicer({
-                          modelId: model.id,
-                          fileId: file0.id,
-                          filename: file0.filename,
-                          downloadUrl: `/api/models/${model.id}/files/${file0.id}`,
-                        })
-                      }
+                      onClick={() => onDownload(model, file0)}
                     >
                       Download for slicer
                     </button>

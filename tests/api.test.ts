@@ -1,11 +1,26 @@
 import { execSync } from "child_process";
 import path from "path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetRateLimitStore } from "@/lib/rate-limit";
+
+const authMock = vi.hoisted(() => ({
+  session: null as null | { user?: { name?: string | null } },
+}));
 
 vi.mock("@/lib/auth", () => ({
-  requireAuth: async () => null,
-  auth: async () => null,
-  handlers: { GET: async () => new Response("ok"), POST: async () => new Response("ok") },
+  requireAuth: async () => authMock.session,
+  requireBootstrapAdmin: async () => {
+    const bootstrap = process.env.AUTH_BOOTSTRAP_USER || "";
+    if (!bootstrap || authMock.session?.user?.name !== bootstrap) {
+      throw new Error("Forbidden");
+    }
+    return authMock.session;
+  },
+  auth: async () => authMock.session,
+  handlers: {
+    GET: async () => new Response("ok"),
+    POST: async () => new Response("ok"),
+  },
   signIn: async () => undefined,
   signOut: async () => undefined,
   oidcConfigured: () => false,
@@ -35,6 +50,10 @@ async function resetDb() {
 }
 
 beforeEach(async () => {
+  process.env.AUTH_ENABLED = "false";
+  process.env.AUTH_BOOTSTRAP_USER = "";
+  authMock.session = null;
+  resetRateLimitStore();
   await resetDb();
 });
 
@@ -113,6 +132,91 @@ describe("filament API", () => {
     expect(dried.status).toBe(200);
     const updated = await dried.json();
     expect(updated.lastDriedAt).toBeTruthy();
+  });
+
+  it("rejects impossible filament bounds", async () => {
+    const { POST } = await import("@/app/api/filament/route");
+    const res = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "PLA Overfill",
+          startingGrams: 1000,
+          remainingGrams: 1001,
+          rollCount: 1,
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Validation failed");
+    expect(body.issues).toContainEqual(
+      expect.objectContaining({ path: "remainingGrams" }),
+    );
+  });
+
+  it("rejects partial PATCH that would leave remaining above starting", async () => {
+    const { POST } = await import("@/app/api/filament/route");
+    const { PATCH } = await import("@/app/api/filament/[id]/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "PLA Partial",
+          startingGrams: 1000,
+          remainingGrams: 750,
+          rollCount: 1,
+        }),
+      }),
+    );
+    const roll = await created.json();
+
+    const tooHigh = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remainingGrams: 1200 }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(tooHigh.status).toBe(400);
+    expect(await tooHigh.json()).toEqual({
+      error: "Remaining grams must be less than or equal to starting grams",
+    });
+
+    const lowerStart = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startingGrams: 500 }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(lowerStart.status).toBe(400);
+  });
+});
+
+describe("users API", () => {
+  it("allows only the bootstrap admin to create users when auth is enabled", async () => {
+    process.env.AUTH_ENABLED = "true";
+    process.env.AUTH_BOOTSTRAP_USER = "admin";
+    authMock.session = { user: { name: "operator" } };
+
+    const { POST } = await import("@/app/api/users/route");
+    const res = await POST(
+      new Request("http://localhost/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "newuser", password: "password123" }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 });
 
@@ -221,6 +325,153 @@ describe("queue + timer + maintenance API", () => {
     expect(await remaining.json()).toHaveLength(0);
   });
 
+  it("reports elapsed timers as completed on GET without mutating storage", async () => {
+    const { prisma } = await import("@/lib/db");
+    const timer = await import("@/app/api/printers/[id]/timer/route");
+    const printer = await prisma.printer.create({
+      data: {
+        name: "Timer test",
+        timer: {
+          create: {
+            status: "running",
+            durationSeconds: 1,
+            startedAt: new Date(Date.now() - 10_000),
+            pausedRemaining: 0,
+          },
+        },
+      },
+    });
+
+    const res = await timer.GET(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("completed");
+    expect(body.remainingSeconds).toBe(0);
+    expect(body.pausedRemaining).toBeNull();
+
+    const stored = await prisma.printTimer.findUnique({
+      where: { printerId: printer.id },
+    });
+    expect(stored?.status).toBe("running");
+    expect(stored?.pausedRemaining).toBe(0);
+  });
+
+  it("validates linked queue items and clears links when deleting queue items", async () => {
+    const { prisma } = await import("@/lib/db");
+    const timer = await import("@/app/api/printers/[id]/timer/route");
+    const queueItem = await import(
+      "@/app/api/printers/[id]/queue/[itemId]/route"
+    );
+    const model = await prisma.model.create({ data: { name: "Linked model" } });
+    const printer = await prisma.printer.create({
+      data: { name: "Linked printer", timer: { create: {} } },
+    });
+    const otherPrinter = await prisma.printer.create({
+      data: { name: "Other printer", timer: { create: {} } },
+    });
+    const item = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 0 },
+    });
+    const otherItem = await prisma.printQueueItem.create({
+      data: { printerId: otherPrinter.id, modelId: model.id, position: 0 },
+    });
+
+    const invalidLink = await timer.PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set",
+          durationSeconds: 60,
+          linkedQueueItemId: otherItem.id,
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(invalidLink.status).toBe(400);
+
+    const linked = await timer.PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set",
+          durationSeconds: 60,
+          linkedQueueItemId: item.id,
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(linked.status).toBe(200);
+    expect((await linked.json()).linkedQueueItemId).toBe(item.id);
+
+    const removed = await queueItem.DELETE(
+      new Request(
+        `http://localhost/api/printers/${printer.id}/queue/${item.id}`,
+        { method: "DELETE" },
+      ),
+      { params: Promise.resolve({ id: printer.id, itemId: item.id }) },
+    );
+    expect(removed.status).toBe(200);
+
+    const stored = await prisma.printTimer.findUnique({
+      where: { printerId: printer.id },
+    });
+    expect(stored?.linkedQueueItemId).toBeNull();
+  });
+
+  it("requires queue reorder ids to be an exact permutation", async () => {
+    const { prisma } = await import("@/lib/db");
+    const queue = await import("@/app/api/printers/[id]/queue/route");
+    const model = await prisma.model.create({ data: { name: "Reorder model" } });
+    const printer = await prisma.printer.create({ data: { name: "Queue" } });
+    const first = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 0 },
+    });
+    const second = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 1 },
+    });
+
+    const missing = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(missing.status).toBe(400);
+
+    const duplicate = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id, second.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(duplicate.status).toBe(400);
+
+    const reordered = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id, first.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(reordered.status).toBe(200);
+    const body = await reordered.json();
+    expect(body.map((item: { id: string; position: number }) => item.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+    expect(body.map((item: { position: number }) => item.position)).toEqual([0, 1]);
+  });
+
   it("rejects disallowed model uploads", async () => {
     const models = await import("@/app/api/models/route");
     const form = new FormData();
@@ -239,6 +490,30 @@ describe("queue + timer + maintenance API", () => {
     const body = await res.json();
     expect(body.error).toMatch(/Unsupported file type/);
   });
+
+  it("rejects model names over 200 characters", async () => {
+    const models = await import("@/app/api/models/route");
+    const form = new FormData();
+    form.set("name", "x".repeat(201));
+    form.set(
+      "file",
+      new File(["solid test\nendsolid test\n"], "benchy.stl", {
+        type: "application/octet-stream",
+      }),
+    );
+
+    const res = await models.POST(
+      new Request("http://localhost/api/models", {
+        method: "POST",
+        body: form,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Name must be at most 200 characters",
+    });
+  });
 });
 
 describe("health API", () => {
@@ -249,5 +524,12 @@ describe("health API", () => {
     const body = await res.json();
     expect(body.status).toBe("ok");
     expect(body.app).toBe("3D Master");
+  });
+
+  it("ready checks the database", async () => {
+    const { GET } = await import("@/app/api/health/ready/route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, db: true });
   });
 });

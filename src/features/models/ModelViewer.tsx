@@ -1,11 +1,13 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Center, Environment, OrbitControls } from "@react-three/drei";
+import { Center, OrbitControls } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+
+const MAX_VIEW_BYTES = 50 * 1024 * 1024;
 
 function MeshFromGeometry({ geometry }: { geometry: THREE.BufferGeometry }) {
   const geo = useMemo(() => {
@@ -27,20 +29,34 @@ function LoadedModel({ url, format }: { url: string; format: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    let loadedGeometry: THREE.BufferGeometry | null = null;
     setGeometry(null);
     setError(null);
+
+    function setLoadedGeometry(geo: THREE.BufferGeometry) {
+      if (cancelled) {
+        geo.dispose();
+        return;
+      }
+      loadedGeometry = geo;
+      setGeometry(geo);
+    }
 
     async function load() {
       try {
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to load model data");
+        const contentLength = Number(res.headers.get("content-length"));
+        if (Number.isFinite(contentLength) && contentLength > MAX_VIEW_BYTES) {
+          throw new Error("Model preview is limited to 50 MB");
+        }
         const buffer = await res.arrayBuffer();
         const fmt = format.toLowerCase();
 
         if (fmt === "stl") {
           const loader = new STLLoader();
           const geo = loader.parse(buffer);
-          if (!cancelled) setGeometry(geo);
+          setLoadedGeometry(geo);
           return;
         }
 
@@ -56,7 +72,9 @@ function LoadedModel({ url, format }: { url: string; format: string }) {
           });
           if (geos.length === 0) throw new Error("No mesh in OBJ");
           // Use first mesh for simplicity
-          if (!cancelled) setGeometry(geos[0]);
+          const [geo, ...unused] = geos;
+          unused.forEach((unusedGeo) => unusedGeo.dispose());
+          setLoadedGeometry(geo);
           return;
         }
 
@@ -74,7 +92,7 @@ function LoadedModel({ url, format }: { url: string; format: string }) {
             }
           });
           if (!found) throw new Error("No mesh in 3MF");
-          if (!cancelled) setGeometry(found);
+          setLoadedGeometry(found);
           return;
         }
 
@@ -89,6 +107,7 @@ function LoadedModel({ url, format }: { url: string; format: string }) {
     load();
     return () => {
       cancelled = true;
+      loadedGeometry?.dispose();
     };
   }, [url, format]);
 
@@ -129,7 +148,6 @@ export function ModelViewer({
         <directionalLight position={[40, 80, 30]} intensity={1.1} />
         <Suspense fallback={null}>
           <LoadedModel url={url} format={format} />
-          <Environment preset="warehouse" />
         </Suspense>
         <OrbitControls makeDefault />
       </Canvas>
