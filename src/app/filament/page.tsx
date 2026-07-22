@@ -295,10 +295,6 @@ export default function FilamentPage() {
     <div>
       <section className="hero">
         <h1>Filament</h1>
-        <p>
-          Shared inventory across printers — search, sort, and track remaining
-          weight, bag status, and drying.
-        </p>
       </section>
 
       <div className="panel">
