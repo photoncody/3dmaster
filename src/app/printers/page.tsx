@@ -7,6 +7,7 @@ import { apiJson, useJson } from "@/lib/client-api";
 type Printer = {
   id: string;
   name: string;
+  model: string;
   notes: string;
   _count: { queueItems: number };
   timer: { status: string } | null;
@@ -16,6 +17,7 @@ export default function PrintersPage() {
   const [refresh, setRefresh] = useState(0);
   const { data, error, loading } = useJson<Printer[]>("/api/printers", refresh);
   const [name, setName] = useState("");
+  const [model, setModel] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -28,9 +30,10 @@ export default function PrintersPage() {
     try {
       await apiJson("/api/printers", {
         method: "POST",
-        body: JSON.stringify({ name, notes }),
+        body: JSON.stringify({ name, model, notes }),
       });
       setName("");
+      setModel("");
       setNotes("");
       setRefresh((n) => n + 1);
     } catch (err) {
@@ -69,6 +72,15 @@ export default function PrintersPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                placeholder="Workshop A"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="printer-model">Model</label>
+              <input
+                id="printer-model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
                 placeholder="Bambu X1C"
               />
             </div>
@@ -104,6 +116,7 @@ export default function PrintersPage() {
             <div key={p.id} className="stack">
               <Link href={`/printers/${p.id}`} className="printer-link">
                 <h3>{p.name}</h3>
+                {p.model ? <p className="muted">{p.model}</p> : null}
                 <p className="muted">
                   {p._count.queueItems} queued
                   {p.timer ? ` · timer ${p.timer.status}` : ""}

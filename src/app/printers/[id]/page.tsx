@@ -27,6 +27,8 @@ type Model = {
 type QueueItem = {
   id: string;
   position: number;
+  status: string;
+  estimatedDurationSeconds: number | null;
   model: Model;
 };
 
@@ -47,6 +49,7 @@ type Timer = {
 type Printer = {
   id: string;
   name: string;
+  model: string;
   notes: string;
   queueItems: QueueItem[];
   maintenance: Maintenance | null;
@@ -64,6 +67,14 @@ function formatTime(total: number) {
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
+function formatDuration(total: number) {
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
 export default function PrinterDetailPage({
   params,
 }: {
@@ -73,6 +84,9 @@ export default function PrinterDetailPage({
   const [refresh, setRefresh] = useState(0);
   const [hours, setHours] = useState(2);
   const [minutes, setMinutes] = useState(0);
+  const [startHours, setStartHours] = useState(2);
+  const [startMinutes, setStartMinutes] = useState(0);
+  const [startingItemId, setStartingItemId] = useState<string | null>(null);
   const [modelsRefresh, setModelsRefresh] = useState(0);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [consentOpen, setConsentOpen] = useState(false);
@@ -93,6 +107,14 @@ export default function PrinterDetailPage({
   );
   const { data: appConfig, error: configError } = useJson<AppConfig>("/api/config");
   const timerStatus = timer?.status ?? null;
+
+  const activeItem =
+    printer?.queueItems.find((item) => item.status === "printing") ?? null;
+  const queuedItems =
+    printer?.queueItems.filter((item) => item.status !== "printing") ?? [];
+  const hasActivePrint = Boolean(activeItem);
+  const submitLabel = hasActivePrint ? "Queue" : "Print";
+  const durationSeconds = hours * 3600 + minutes * 60;
 
   function dismissCompletionPrompt() {
     if (timer?.updatedAt) {
@@ -134,9 +156,11 @@ export default function PrinterDetailPage({
 
   useEffect(() => {
     if (!timer || !printer) return;
-    if (timer.status !== "completed" || !printer.queueItems.length) {
-      return;
-    }
+    if (timer.status !== "completed") return;
+    const nextQueued = printer.queueItems.filter(
+      (item) => item.status !== "printing",
+    );
+    if (!nextQueued.length) return;
     const key = `completed-prompt:${id}:${timer.updatedAt}`;
     let dismissed = false;
     try {
@@ -145,7 +169,12 @@ export default function PrinterDetailPage({
       dismissed = false;
     }
     if (dismissed) return;
-    setNextItem(printer.queueItems[0]);
+    setNextItem(nextQueued[0]);
+    const est = nextQueued[0].estimatedDurationSeconds;
+    if (est && est > 0) {
+      setStartHours(Math.floor(est / 3600));
+      setStartMinutes(Math.floor((est % 3600) / 60));
+    }
     setConsentOpen(true);
   }, [timer, printer, id]);
 
@@ -156,11 +185,19 @@ export default function PrinterDetailPage({
   async function addToQueue(e: FormEvent) {
     e.preventDefault();
     if (!selectedModelId) return;
+    if (!hasActivePrint && durationSeconds <= 0) {
+      setMutationError("Set how long this print will take");
+      return;
+    }
     setMutationError(null);
     try {
       await apiJson(`/api/printers/${id}/queue`, {
         method: "POST",
-        body: JSON.stringify({ modelId: selectedModelId }),
+        body: JSON.stringify({
+          modelId: selectedModelId,
+          durationSeconds:
+            durationSeconds > 0 ? durationSeconds : undefined,
+        }),
       });
       setSelectedModelId("");
       setRefresh((n) => n + 1);
@@ -185,6 +222,8 @@ export default function PrinterDetailPage({
     const index = ids.indexOf(itemId);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= ids.length) return;
+    // Keep the active print pinned at the front.
+    if (hasActivePrint && (index === 0 || target === 0)) return;
     const next = [...ids];
     const [item] = next.splice(index, 1);
     next.splice(target, 0, item);
@@ -197,6 +236,33 @@ export default function PrinterDetailPage({
       setRefresh((n) => n + 1);
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Failed to reorder queue");
+    }
+  }
+
+  async function startQueueItem(item: QueueItem, overrideSeconds?: number) {
+    const seconds =
+      overrideSeconds ??
+      item.estimatedDurationSeconds ??
+      startHours * 3600 + startMinutes * 60;
+    if (!seconds || seconds <= 0) {
+      setMutationError("Set how long this print will take before starting");
+      setStartingItemId(item.id);
+      return;
+    }
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/queue/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "start",
+          durationSeconds: seconds,
+        }),
+      });
+      setStartingItemId(null);
+      setConsentOpen(false);
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to start print");
     }
   }
 
@@ -227,20 +293,28 @@ export default function PrinterDetailPage({
   }
 
   async function timerAction(action: string) {
-    const durationSeconds = hours * 3600 + minutes * 60;
     setMutationError(null);
     try {
       await apiJson(`/api/printers/${id}/timer`, {
         method: "PATCH",
-        body: JSON.stringify({
-          action,
-          durationSeconds:
-            action === "set" || action === "start" ? durationSeconds : undefined,
-        }),
+        body: JSON.stringify({ action }),
       });
       setRefresh((n) => n + 1);
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Failed to update timer");
+    }
+  }
+
+  async function completeActivePrint() {
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/timer`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "complete" }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to complete print");
     }
   }
 
@@ -254,18 +328,40 @@ export default function PrinterDetailPage({
   }
 
   async function acceptNextModel() {
-    if (!nextItem?.model.files[0]) {
+    if (!nextItem) {
       dismissCompletionPrompt();
       return;
     }
-    const file = nextItem.model.files[0];
-    await downloadModel({
-      modelId: nextItem.model.id,
-      fileId: file.id,
-      filename: file.filename,
-      downloadUrl: `/api/models/${nextItem.model.id}/files/${file.id}`,
-    });
-    dismissCompletionPrompt();
+    const seconds = startHours * 3600 + startMinutes * 60;
+    if (seconds <= 0) {
+      setMutationError("Set how long the next print will take");
+      return;
+    }
+    setMutationError(null);
+    try {
+      // Clear the finished active print before promoting the next item.
+      if (activeItem) {
+        await apiJson(`/api/printers/${id}/timer`, {
+          method: "PATCH",
+          body: JSON.stringify({ action: "complete" }),
+        });
+      }
+      if (nextItem.model.files[0]) {
+        const file = nextItem.model.files[0];
+        await downloadModel({
+          modelId: nextItem.model.id,
+          fileId: file.id,
+          filename: file.filename,
+          downloadUrl: `/api/models/${nextItem.model.id}/files/${file.id}`,
+        });
+      }
+      await startQueueItem(nextItem, seconds);
+    } catch (err) {
+      setMutationError(
+        err instanceof Error ? err.message : "Failed to start next print",
+      );
+      setRefresh((n) => n + 1);
+    }
   }
 
   if (loading) return <p className="muted">Loading printer…</p>;
@@ -281,193 +377,317 @@ export default function PrinterDetailPage({
         </p>
         <section className="hero">
           <h1>{printer.name}</h1>
-          <p>{printer.notes || "Queue, maintenance, and timer for this machine."}</p>
+          <p>
+            {printer.model ||
+              printer.notes ||
+              "Queue and maintenance for this machine."}
+          </p>
+          {printer.model && printer.notes ? (
+            <p className="muted">{printer.notes}</p>
+          ) : null}
         </section>
 
         {mutationError ? <p className="muted">{mutationError}</p> : null}
         {configError ? <p className="muted">{configError}</p> : null}
 
         <div className="panel">
-        <h2 className="section-title">Print timer</h2>
-        <div className="timer-display" data-status={status} aria-live="polite">
-          {formatTime(localRemaining)}
-        </div>
-        <p className="muted" style={{ marginTop: "0.35rem" }}>
-          Status: {status}
-        </p>
-        <div className="row" style={{ marginTop: "0.75rem" }}>
-          <div className="field" style={{ maxWidth: 100 }}>
-            <label htmlFor="hours">Hours</label>
-            <input
-              id="hours"
-              type="number"
-              min={0}
-              max={48}
-              value={hours}
-              onChange={(e) => setHours(Number(e.target.value))}
-            />
-          </div>
-          <div className="field" style={{ maxWidth: 100 }}>
-            <label htmlFor="minutes">Minutes</label>
-            <input
-              id="minutes"
-              type="number"
-              min={0}
-              max={59}
-              value={minutes}
-              onChange={(e) => setMinutes(Number(e.target.value))}
-            />
-          </div>
-        </div>
-        <div className="row" style={{ marginTop: "0.75rem" }}>
-          <button type="button" className="btn secondary" onClick={() => timerAction("set")}>
-            Set duration
-          </button>
-          <button type="button" className="btn" onClick={() => timerAction("start")}>
-            Start
-          </button>
-          <button type="button" className="btn secondary" onClick={() => timerAction("pause")}>
-            Pause
-          </button>
-          <button type="button" className="btn secondary" onClick={() => timerAction("resume")}>
-            Resume
-          </button>
-          <button type="button" className="btn secondary" onClick={() => timerAction("reset")}>
-            Reset
-          </button>
-          <button type="button" className="btn accent" onClick={() => timerAction("complete")}>
-            Mark complete
-          </button>
-        </div>
-        </div>
+          <h2 className="section-title">Print queue</h2>
 
-        <div className="panel">
-        <h2 className="section-title">Print queue</h2>
-        <form className="row" onSubmit={addToQueue}>
-          <div className="field">
-            <label htmlFor="queue-model">Add model</label>
-            <select
-              id="queue-model"
-              value={selectedModelId}
-              onChange={(e) => setSelectedModelId(e.target.value)}
-              required
-            >
-              <option value="">Select a model…</option>
-              {models?.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button className="btn" type="submit" style={{ alignSelf: "end" }}>
-            Queue
-          </button>
-          <button
-            type="button"
-            className="btn secondary"
-            style={{ alignSelf: "end" }}
-            onClick={() => setModelsRefresh((n) => n + 1)}
-          >
-            Refresh models
-          </button>
-        </form>
-        <div style={{ marginTop: "0.5rem" }}>
-          {printer.queueItems.length === 0 ? (
-            <p className="muted">Queue is empty.</p>
-          ) : (
-            printer.queueItems.map((item, index) => (
-              <div key={item.id} className="list-item">
-                <div>
-                  <strong>
-                    #{index + 1} {item.model.name}
-                  </strong>
-                  <p className="muted">
-                    {item.model.files.map((f) => f.filename).join(", ") ||
-                      "No files"}
-                  </p>
+          {activeItem ? (
+            <div className="list-item" style={{ marginBottom: "1rem" }}>
+              <div>
+                <p className="muted" style={{ marginBottom: "0.25rem" }}>
+                  Now printing
+                </p>
+                <strong>{activeItem.model.name}</strong>
+                <div
+                  className="timer-display"
+                  data-status={status}
+                  aria-live="polite"
+                  style={{ marginTop: "0.5rem" }}
+                >
+                  {formatTime(localRemaining)}
                 </div>
-                <div className="row">
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    disabled={index === 0}
-                    onClick={() => moveQueueItem(item.id, -1)}
-                  >
-                    Up
-                  </button>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    disabled={index === printer.queueItems.length - 1}
-                    onClick={() => moveQueueItem(item.id, 1)}
-                  >
-                    Down
-                  </button>
-                  {item.model.files[0] ? (
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      onClick={() =>
-                        downloadModel({
-                          modelId: item.model.id,
-                          fileId: item.model.files[0].id,
-                          filename: item.model.files[0].filename,
-                          downloadUrl: `/api/models/${item.model.id}/files/${item.model.files[0].id}`,
-                        })
-                      }
-                    >
-                      Download
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => removeQueueItem(item.id)}
-                  >
-                    Done / remove
-                  </button>
-                </div>
+                <p className="muted" style={{ marginTop: "0.35rem" }}>
+                  Status: {status}
+                </p>
+                <p className="muted">
+                  {activeItem.model.files.map((f) => f.filename).join(", ") ||
+                    "No files"}
+                </p>
               </div>
-            ))
-          )}
-        </div>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => timerAction("pause")}
+                  disabled={status !== "running"}
+                >
+                  Pause
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => timerAction("resume")}
+                  disabled={status !== "paused"}
+                >
+                  Resume
+                </button>
+                {activeItem.model.files[0] ? (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() =>
+                      downloadModel({
+                        modelId: activeItem.model.id,
+                        fileId: activeItem.model.files[0].id,
+                        filename: activeItem.model.files[0].filename,
+                        downloadUrl: `/api/models/${activeItem.model.id}/files/${activeItem.model.files[0].id}`,
+                      })
+                    }
+                  >
+                    Download
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn accent"
+                  onClick={completeActivePrint}
+                >
+                  Mark complete
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <form className="stack" onSubmit={addToQueue}>
+            <div className="row">
+              <div className="field">
+                <label htmlFor="queue-model">
+                  {hasActivePrint ? "Add model to queue" : "Model to print"}
+                </label>
+                <select
+                  id="queue-model"
+                  value={selectedModelId}
+                  onChange={(e) => setSelectedModelId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a model…</option>
+                  {models?.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ maxWidth: 100 }}>
+                <label htmlFor="hours">
+                  Hours{hasActivePrint ? " (optional)" : ""}
+                </label>
+                <input
+                  id="hours"
+                  type="number"
+                  min={0}
+                  max={48}
+                  value={hours}
+                  required={!hasActivePrint}
+                  onChange={(e) => setHours(Number(e.target.value))}
+                />
+              </div>
+              <div className="field" style={{ maxWidth: 100 }}>
+                <label htmlFor="minutes">
+                  Minutes{hasActivePrint ? " (optional)" : ""}
+                </label>
+                <input
+                  id="minutes"
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={minutes}
+                  required={!hasActivePrint}
+                  onChange={(e) => setMinutes(Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="row">
+              <button className="btn" type="submit">
+                {submitLabel}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setModelsRefresh((n) => n + 1)}
+              >
+                Refresh models
+              </button>
+            </div>
+          </form>
+
+          <div style={{ marginTop: "1rem" }}>
+            {!hasActivePrint && queuedItems.length === 0 ? (
+              <p className="muted">Queue is empty.</p>
+            ) : null}
+            {queuedItems.length > 0 ? (
+              <>
+                <h3 className="section-title" style={{ fontSize: "1rem" }}>
+                  Up next
+                </h3>
+                {queuedItems.map((item, index) => {
+                  const absoluteIndex = hasActivePrint ? index + 1 : index;
+                  const canMoveUp = hasActivePrint
+                    ? absoluteIndex > 1
+                    : absoluteIndex > 0;
+                  const canMoveDown =
+                    absoluteIndex < printer.queueItems.length - 1;
+                  const needsTime =
+                    !item.estimatedDurationSeconds ||
+                    item.estimatedDurationSeconds <= 0;
+                  const isEditingStart = startingItemId === item.id;
+
+                  return (
+                    <div key={item.id} className="list-item">
+                      <div>
+                        <strong>
+                          #{index + 1} {item.model.name}
+                        </strong>
+                        <p className="muted">
+                          {item.model.files.map((f) => f.filename).join(", ") ||
+                            "No files"}
+                          {item.estimatedDurationSeconds
+                            ? ` · est. ${formatDuration(item.estimatedDurationSeconds)}`
+                            : " · no time set"}
+                        </p>
+                        {isEditingStart ? (
+                          <div className="row" style={{ marginTop: "0.5rem" }}>
+                            <div className="field" style={{ maxWidth: 100 }}>
+                              <label htmlFor={`start-h-${item.id}`}>Hours</label>
+                              <input
+                                id={`start-h-${item.id}`}
+                                type="number"
+                                min={0}
+                                max={48}
+                                value={startHours}
+                                onChange={(e) =>
+                                  setStartHours(Number(e.target.value))
+                                }
+                              />
+                            </div>
+                            <div className="field" style={{ maxWidth: 100 }}>
+                              <label htmlFor={`start-m-${item.id}`}>
+                                Minutes
+                              </label>
+                              <input
+                                id={`start-m-${item.id}`}
+                                type="number"
+                                min={0}
+                                max={59}
+                                value={startMinutes}
+                                onChange={(e) =>
+                                  setStartMinutes(Number(e.target.value))
+                                }
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="row">
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          disabled={!canMoveUp}
+                          onClick={() => moveQueueItem(item.id, -1)}
+                        >
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          disabled={!canMoveDown}
+                          onClick={() => moveQueueItem(item.id, 1)}
+                        >
+                          Down
+                        </button>
+                        {!hasActivePrint ? (
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => {
+                              if (needsTime && !isEditingStart) {
+                                setStartingItemId(item.id);
+                                return;
+                              }
+                              void startQueueItem(item);
+                            }}
+                          >
+                            {isEditingStart ? "Confirm start" : "Start"}
+                          </button>
+                        ) : null}
+                        {item.model.files[0] ? (
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            onClick={() =>
+                              downloadModel({
+                                modelId: item.model.id,
+                                fileId: item.model.files[0].id,
+                                filename: item.model.files[0].filename,
+                                downloadUrl: `/api/models/${item.model.id}/files/${item.model.files[0].id}`,
+                              })
+                            }
+                          >
+                            Download
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => removeQueueItem(item.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ) : null}
+          </div>
         </div>
 
         <div className="panel">
-        <h2 className="section-title">Maintenance</h2>
-        <div className="stack">
-          <p>
-            Last cleaned:{" "}
-            {appConfig ? (
-              <AgeText
-                date={printer.maintenance?.lastCleanedAt}
-                thresholds={appConfig.cleanThresholdsDays}
-              />
-            ) : (
-              <span className="muted">Loading…</span>
-            )}
-          </p>
-          <p>
-            Nozzle installed:{" "}
-            {appConfig ? (
-              <AgeText
-                date={printer.maintenance?.nozzleInstalledAt}
-                thresholds={appConfig.cleanThresholdsDays}
-              />
-            ) : (
-              <span className="muted">Loading…</span>
-            )}
-          </p>
-          <div className="row">
-            <button type="button" className="btn" onClick={markCleaned}>
-              Cleaned now
-            </button>
-            <button type="button" className="btn secondary" onClick={markNozzle}>
-              New nozzle installed
-            </button>
+          <h2 className="section-title">Maintenance</h2>
+          <div className="stack">
+            <p>
+              Last cleaned:{" "}
+              {appConfig ? (
+                <AgeText
+                  date={printer.maintenance?.lastCleanedAt}
+                  thresholds={appConfig.cleanThresholdsDays}
+                />
+              ) : (
+                <span className="muted">Loading…</span>
+              )}
+            </p>
+            <p>
+              Nozzle installed:{" "}
+              {appConfig ? (
+                <AgeText
+                  date={printer.maintenance?.nozzleInstalledAt}
+                  thresholds={appConfig.cleanThresholdsDays}
+                />
+              ) : (
+                <span className="muted">Loading…</span>
+              )}
+            </p>
+            <div className="row">
+              <button type="button" className="btn" onClick={markCleaned}>
+                Cleaned now
+              </button>
+              <button type="button" className="btn secondary" onClick={markNozzle}>
+                New nozzle installed
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
 
@@ -483,9 +703,33 @@ export default function PrinterDetailPage({
           <div className="modal">
             <h2 className="section-title">Print finished</h2>
             <p>
-              Load the next queued model{" "}
-              <strong>{nextItem.model.name}</strong> for your slicer?
+              Start the next queued model{" "}
+              <strong>{nextItem.model.name}</strong>?
             </p>
+            <div className="row" style={{ marginTop: "0.75rem" }}>
+              <div className="field" style={{ maxWidth: 100 }}>
+                <label htmlFor="next-hours">Hours</label>
+                <input
+                  id="next-hours"
+                  type="number"
+                  min={0}
+                  max={48}
+                  value={startHours}
+                  onChange={(e) => setStartHours(Number(e.target.value))}
+                />
+              </div>
+              <div className="field" style={{ maxWidth: 100 }}>
+                <label htmlFor="next-minutes">Minutes</label>
+                <input
+                  id="next-minutes"
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={startMinutes}
+                  onChange={(e) => setStartMinutes(Number(e.target.value))}
+                />
+              </div>
+            </div>
             <div className="row" style={{ marginTop: "1rem" }}>
               <button
                 ref={primaryDialogButtonRef}
@@ -493,7 +737,7 @@ export default function PrinterDetailPage({
                 className="btn"
                 onClick={acceptNextModel}
               >
-                Yes, download next
+                Yes, start next
               </button>
               <button
                 type="button"

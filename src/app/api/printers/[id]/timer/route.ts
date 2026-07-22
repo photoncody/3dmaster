@@ -146,9 +146,41 @@ export async function PATCH(request: Request, ctx: Ctx) {
       }
     }
 
-    const timer = await prisma.printTimer.update({
-      where: { printerId },
-      data,
+    const timer = await prisma.$transaction(async (tx) => {
+      const updated = await tx.printTimer.update({
+        where: { printerId },
+        data,
+      });
+
+      // Completing a print clears the active queue slot so the next item
+      // can be started (with a required duration) from the queue UI.
+      if (body.action === "complete" && updated.linkedQueueItemId) {
+        const linkedId = updated.linkedQueueItemId;
+        await tx.printQueueItem.deleteMany({
+          where: { id: linkedId, printerId },
+        });
+        await tx.printTimer.update({
+          where: { printerId },
+          data: { linkedQueueItemId: null },
+        });
+
+        const remaining = await tx.printQueueItem.findMany({
+          where: { printerId },
+          orderBy: { position: "asc" },
+        });
+        await Promise.all(
+          remaining.map((item, index) =>
+            tx.printQueueItem.update({
+              where: { id: item.id },
+              data: { position: index },
+            }),
+          ),
+        );
+
+        return { ...updated, linkedQueueItemId: null };
+      }
+
+      return updated;
     });
 
     return jsonOk({

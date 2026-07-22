@@ -7,6 +7,7 @@ import {
 } from "@/lib/storage";
 import { resetRateLimitStore, rateLimit, clientIpFromRequest } from "@/lib/rate-limit";
 import { remainingSeconds, isTimerFinished } from "@/lib/timer";
+import { filamentLabel } from "@/lib/filament-label";
 import {
   clearSlicerAdapters,
   listSlicerAdapters,
@@ -14,6 +15,22 @@ import {
 } from "@/features/models/slicer-handoff";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
 import { ZodError, z } from "zod";
+
+describe("filamentLabel", () => {
+  it("joins manufacturer, material, and color", () => {
+    expect(
+      filamentLabel({
+        manufacturer: "Generic",
+        material: "PLA",
+        color: "Black",
+      }),
+    ).toBe("Generic · PLA · Black");
+  });
+
+  it("falls back when nothing is provided", () => {
+    expect(filamentLabel({})).toBe("Filament");
+  });
+});
 
 describe("sanitizeFilename", () => {
   it("strips path segments and unsafe characters", () => {

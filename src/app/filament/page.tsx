@@ -23,6 +23,12 @@ type AppConfig = {
   dryThresholdsDays: AgeThresholds;
 };
 
+function rollTitle(roll: Filament) {
+  const parts = [roll.material, roll.color].filter(Boolean);
+  if (parts.length) return parts.join(" · ");
+  return roll.name || "Filament";
+}
+
 export default function FilamentPage() {
   const [refresh, setRefresh] = useState(0);
   const { data, error, loading } = useJson<Filament[]>("/api/filament", refresh);
@@ -32,7 +38,6 @@ export default function FilamentPage() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [remainingInputs, setRemainingInputs] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
-    name: "",
     manufacturer: "",
     material: "PLA",
     color: "",
@@ -62,7 +67,6 @@ export default function FilamentPage() {
         body: JSON.stringify(form),
       });
       setForm({
-        name: "",
         manufacturer: "",
         material: "PLA",
         color: "",
@@ -140,8 +144,8 @@ export default function FilamentPage() {
       <section className="hero">
         <h1>Filament</h1>
         <p>
-          Shared inventory across printers — track weight left, rolls, bag
-          status, and time since last dry.
+          Shared inventory across printers — track weight left, bag status, and
+          time since last dry.
         </p>
       </section>
 
@@ -149,14 +153,6 @@ export default function FilamentPage() {
         <h2 className="section-title">Add filament</h2>
         <form className="stack" onSubmit={onCreate}>
           <div className="row">
-            <div className="field">
-              <label>Name</label>
-              <input
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
             <div className="field">
               <label>Manufacturer</label>
               <input
@@ -255,13 +251,9 @@ export default function FilamentPage() {
           return (
             <div key={roll.id} className="list-item">
               <div>
-                <strong>
-                  {roll.name}
-                  {roll.color ? ` · ${roll.color}` : ""}
-                </strong>
+                <strong>{rollTitle(roll)}</strong>
                 <p className="muted">
-                  {roll.manufacturer || "Unknown maker"} · {roll.material} ·{" "}
-                  {roll.rollCount} roll{roll.rollCount === 1 ? "" : "s"}
+                  {roll.manufacturer || "Unknown maker"} · {roll.material}
                 </p>
                 <p className="muted">
                   {roll.remainingGrams}g / {roll.startingGrams}g remaining ({pct}
