@@ -20,13 +20,15 @@ Manage **printers**, **model inventory**, **filament**, **maintenance**, and **p
 
 ```bash
 cp .env.example .env
-# edit AUTH_SECRET at minimum
-docker compose up -d --build
+# for exposed installs, set AUTH_ENABLED=true, AUTH_SECRET, and auth credentials/OIDC
+docker compose up -d
 ```
 
 Open http://localhost:3000
 
 Persistent data (database + model files) lives in the `3dmaster-data` volume at `/data`.
+The compose file pulls the published image by default. To build locally with Compose, uncomment `build: .` in `docker-compose.yml`, then run `docker compose up -d --build`.
+Compose defaults to `AUTH_ENABLED=true` and requires `AUTH_SECRET`. For a trusted local-only quick start without auth, set `AUTH_ENABLED=false` and `ALLOW_INSECURE_NO_AUTH=true`.
 
 ### Pull from GHCR
 
@@ -55,17 +57,21 @@ Vitest covers age/color helpers, storage safety, rate limiting, timer math, slic
 
 ## Authentication
 
-Auth is **off by default** (`AUTH_ENABLED=false`). Only use that on a trusted LAN.
+Auth is **off by default** for local development (`AUTH_ENABLED=false`). Only use that on a trusted LAN. Production runs with auth disabled require `ALLOW_INSECURE_NO_AUTH=true`.
 
 To enable:
 
 ```env
 AUTH_ENABLED=true
-AUTH_SECRET=long-random-string
+AUTH_SECRET=long-random-string-at-least-32-chars
+AUTH_CREDENTIALS_ENABLED=true
 AUTH_BOOTSTRAP_USER=admin
 AUTH_BOOTSTRAP_PASSWORD=change-me
 AUTH_URL=https://3dmaster.example.com
+AUTH_TRUST_HOST=true
 ```
+
+Disable username/password auth with `AUTH_CREDENTIALS_ENABLED=false` when using OIDC only.
 
 ### OIDC + group membership
 
@@ -77,12 +83,14 @@ OIDC_GROUP_CLAIM=groups
 OIDC_ALLOWED_GROUPS=3d-printers
 ```
 
-Users must appear in at least one allowed group (claim name configurable). Local username/password remains available as a fallback. When auth is on, all authorized users share one workshop (no per-user libraries).
+Users must appear in at least one allowed group (claim name configurable). Empty `OIDC_ALLOWED_GROUPS` denies all OIDC users unless you explicitly set `OIDC_ALLOW_ALL_GROUPS=true`. Local username/password remains available as a fallback when credentials auth is enabled. When auth is on, all authorized users share one workshop (no per-user libraries).
+
+When running behind a trusted reverse proxy, set `TRUST_PROXY=true` so login rate limiting can use `X-Forwarded-For`/`X-Real-IP`. Leave it unset when the app is exposed directly.
 
 ## Security notes
 
 - Put 3D Master behind HTTPS (Caddy, Traefik, or nginx) when reachable beyond localhost
-- Change `AUTH_SECRET` and bootstrap passwords before production use
+- Use a strong `AUTH_SECRET` and bootstrap password before production use
 - Enable auth if the instance is not on a trusted network
 - Uploads are extension-allowlisted and size-limited; files are stored outside the web root under `/data/models`
 - Security headers (CSP, frame denial, nosniff) are enabled by default

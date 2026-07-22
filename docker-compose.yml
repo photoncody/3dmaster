@@ -5,20 +5,24 @@ services:
     ports:
       - "3000:3000"
     environment:
-      AUTH_ENABLED: "false"
-      # openssl rand -base64 32
-      AUTH_SECRET: "change-me-to-a-long-random-string"
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET to a long random string}
+      ALLOW_INSECURE_NO_AUTH: ${ALLOW_INSECURE_NO_AUTH:-}
+      AUTH_CREDENTIALS_ENABLED: ${AUTH_CREDENTIALS_ENABLED:-true}
       DATA_DIR: /data
       DATABASE_URL: file:/data/3dmaster.db
-      # Optional auth when AUTH_ENABLED=true:
-      # AUTH_BOOTSTRAP_USER: admin
-      # AUTH_BOOTSTRAP_PASSWORD: change-me
+      # Required when AUTH_ENABLED=true and AUTH_CREDENTIALS_ENABLED=true:
+      # AUTH_BOOTSTRAP_USER: ${AUTH_BOOTSTRAP_USER:?Set AUTH_BOOTSTRAP_USER}
+      # AUTH_BOOTSTRAP_PASSWORD: ${AUTH_BOOTSTRAP_PASSWORD:?Set AUTH_BOOTSTRAP_PASSWORD}
       # OIDC_ISSUER: https://idp.example.com/application/o/3dmaster/
       # OIDC_CLIENT_ID: ...
       # OIDC_CLIENT_SECRET: ...
       # OIDC_GROUP_CLAIM: groups
       # OIDC_ALLOWED_GROUPS: 3d-printers
+      # OIDC_ALLOW_ALL_GROUPS: "false"
       # AUTH_URL: https://3dmaster.example.com
+      # AUTH_TRUST_HOST: "true"
+      # TRUST_PROXY: "true"
     volumes:
       - 3dmaster-data:/data
     restart: unless-stopped

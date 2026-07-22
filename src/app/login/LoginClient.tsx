@@ -4,9 +4,20 @@ import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
-export default function LoginClient() {
+type LoginClientProps = {
+  oidcConfigured: boolean;
+};
+
+function safeCallbackUrl(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) {
+    return "/";
+  }
+  return raw;
+}
+
+export default function LoginClient({ oidcConfigured }: LoginClientProps) {
   const params = useSearchParams();
-  const callbackUrl = params.get("callbackUrl") || "/";
+  const callbackUrl = safeCallbackUrl(params.get("callbackUrl"));
   const error = params.get("error");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -75,15 +86,17 @@ export default function LoginClient() {
           </button>
         </form>
 
-        <div className="row" style={{ marginTop: "1rem" }}>
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={() => signIn("oidc", { callbackUrl })}
-          >
-            Sign in with OIDC
-          </button>
-        </div>
+        {oidcConfigured ? (
+          <div className="row" style={{ marginTop: "1rem" }}>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => signIn("oidc", { callbackUrl })}
+            >
+              Sign in with OIDC
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

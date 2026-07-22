@@ -1,22 +1,37 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 import { rateLimit } from "@/lib/rate-limit";
 
 const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health"];
 
+function envBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function rateLimitIp(request: NextRequest): string {
+  const requestIp = (request as NextRequest & { ip?: string }).ip;
+  if (requestIp) return requestIp;
+
+  if (envBool(process.env.TRUST_PROXY, false)) {
+    return (
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "direct"
+    );
+  }
+
+  return "direct";
+}
+
 export async function middleware(request: NextRequest) {
-  const authEnabled = ["1", "true", "yes", "on"].includes(
-    (process.env.AUTH_ENABLED || "false").toLowerCase(),
-  );
+  const authEnabled = envBool(process.env.AUTH_ENABLED, false);
 
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/auth") && request.method === "POST") {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      "local";
-    const limited = rateLimit(`auth:${ip}`, 30, 60_000);
+    const limited = rateLimit(`auth:${rateLimitIp(request)}`, 10, 60_000);
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many login attempts. Try again shortly." },
@@ -33,11 +48,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const sessionToken =
-    request.cookies.get("authjs.session-token")?.value ||
-    request.cookies.get("__Secure-authjs.session-token")?.value;
-
-  if (!sessionToken) {
+  const token = await getToken({ req: request, secret: process.env.AUTH_SECRET });
+  if (!token) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
