@@ -123,16 +123,18 @@ export default function PrintersPage() {
                 </p>
                 {p.notes ? <p className="muted">{p.notes}</p> : null}
               </Link>
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={() => onDelete(p.id)}
-              >
-                Delete
-              </button>
-              <Link href={`/printers/${p.id}?edit=1`} className="btn secondary">
-                Edit
-              </Link>
+              <div className="row">
+                <Link href={`/printers/${p.id}?edit=1`} className="btn secondary">
+                  Edit
+                </Link>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => onDelete(p.id)}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>
