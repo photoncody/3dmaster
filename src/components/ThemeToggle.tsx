@@ -75,9 +75,14 @@ export function ThemeToggle() {
       onClick={cyclePreference}
       aria-label={`Theme: ${label}. Click to change.`}
       title={`Theme: ${label}`}
+      // Preference is applied by a head script before hydration, so the
+      // client label may legitimately differ from the SSR default.
+      suppressHydrationWarning
     >
       <ThemeIcon preference={preference} />
-      <span className="theme-toggle-label">{label}</span>
+      <span className="theme-toggle-label" suppressHydrationWarning>
+        {label}
+      </span>
     </button>
   );
 }

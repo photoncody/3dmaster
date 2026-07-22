@@ -22,6 +22,14 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function isThemePreference(value: string | null | undefined): value is ThemePreference {
+  return value === "light" || value === "dark" || value === "system";
+}
+
+function isResolvedTheme(value: string | null | undefined): value is ResolvedTheme {
+  return value === "light" || value === "dark";
+}
+
 function getSystemTheme(): ResolvedTheme {
   if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -45,31 +53,58 @@ function applyTheme(preference: ThemePreference) {
 function readStoredPreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system") {
-      return stored;
-    }
+    if (isThemePreference(stored)) return stored;
   } catch {
     /* ignore */
   }
   return "system";
 }
 
+/** Prefer the preference already applied by the head script, then localStorage. */
+function getInitialPreference(): ThemePreference {
+  if (typeof document !== "undefined") {
+    const fromDom = document.documentElement.dataset.themePreference;
+    if (isThemePreference(fromDom)) return fromDom;
+  }
+  if (typeof window === "undefined") return "system";
+  return readStoredPreference();
+}
+
+function getInitialResolved(): ResolvedTheme {
+  if (typeof document !== "undefined") {
+    const fromDom = document.documentElement.dataset.theme;
+    if (isResolvedTheme(fromDom)) return fromDom;
+  }
+  return resolveTheme(getInitialPreference());
+}
+
+function persistPreference(preference: ThemePreference) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, preference);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>("system");
-  const [resolved, setResolved] = useState<ResolvedTheme>("light");
+  const [preference, setPreferenceState] = useState<ThemePreference>(
+    getInitialPreference,
+  );
+  const [resolved, setResolved] = useState<ResolvedTheme>(getInitialResolved);
 
   useEffect(() => {
-    const initial = readStoredPreference();
-    setPreferenceState(initial);
-    setResolved(applyTheme(initial));
+    // Re-sync in case storage changed between the head script and hydration.
+    const current = readStoredPreference();
+    setPreferenceState(current);
+    setResolved(applyTheme(current));
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onSystemChange = () => {
-      setPreferenceState((current) => {
-        if (current === "system") {
+      setPreferenceState((currentPreference) => {
+        if (currentPreference === "system") {
           setResolved(applyTheme("system"));
         }
-        return current;
+        return currentPreference;
       });
     };
     media.addEventListener("change", onSystemChange);
@@ -79,23 +114,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
     setResolved(applyTheme(next));
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
+    persistPreference(next);
   }, []);
 
   const cyclePreference = useCallback(() => {
     setPreferenceState((current) => {
+      // Always advance from the persisted preference so a stale React state
+      // cannot overwrite a saved light/dark choice.
+      const baseline = readStoredPreference();
+      const from = isThemePreference(baseline) ? baseline : current;
       const order: ThemePreference[] = ["system", "light", "dark"];
-      const next = order[(order.indexOf(current) + 1) % order.length];
+      const next = order[(order.indexOf(from) + 1) % order.length];
       setResolved(applyTheme(next));
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, next);
-      } catch {
-        /* ignore */
-      }
+      persistPreference(next);
       return next;
     });
   }, []);
