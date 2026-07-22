@@ -43,9 +43,11 @@ docker compose up -d
 npm install
 cp .env.example .env
 mkdir -p data
-npx prisma migrate dev
+DATABASE_URL="file:$(pwd)/data/3dmaster.db" npx prisma migrate dev
 npm run dev
 ```
+
+The app opens SQLite from `DATA_DIR` at runtime. Use an absolute `DATABASE_URL` when running Prisma CLI commands so migrations target the same database instead of `prisma/data/3dmaster.db`.
 
 ### Tests
 
@@ -54,6 +56,11 @@ npm test
 ```
 
 Vitest covers age/color helpers, storage safety, rate limiting, timer math, slicer adapter registration, and API route handlers (printers, filament, models, queue, maintenance, timer, health) against a temporary SQLite database.
+
+## Health checks
+
+- `/api/health` is a liveness endpoint and does not touch the database.
+- `/api/health/ready` checks database readiness and is used by the Docker healthcheck.
 
 ## Authentication
 

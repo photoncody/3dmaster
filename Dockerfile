@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV DATABASE_URL="file:./data/build.db"
+ENV DATABASE_URL="file:/tmp/build.db"
+ENV ALLOW_INSECURE_NO_AUTH=true
 # Ensure public/ exists even when the repo only ships an empty placeholder.
 RUN mkdir -p public data && npx prisma migrate deploy && npm run build
 
@@ -48,7 +49,7 @@ RUN chmod +x /entrypoint.sh && chown -R nextjs:nodejs /app /data
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "server.js"]
