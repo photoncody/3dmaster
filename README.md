@@ -20,8 +20,10 @@ Manage **printers**, **model inventory**, **filament**, **maintenance**, and **p
 
 ```bash
 cp .env.example .env
-# set AUTH_SECRET=$(openssl rand -base64 32) — required by Compose (auth on by default)
-# optional: AUTH_BOOTSTRAP_USER / AUTH_BOOTSTRAP_PASSWORD for local logins
+# required by Compose (auth on by default):
+#   AUTH_SECRET=$(openssl rand -base64 32)
+#   AUTH_BOOTSTRAP_PASSWORD=choose-a-strong-password
+# AUTH_BOOTSTRAP_USER defaults to admin
 docker compose up -d --build
 ```
 
@@ -29,7 +31,7 @@ Open http://localhost:3000
 
 Persistent data (database + model files) lives in the `3dmaster-data` volume at `/data`.
 Compose builds from the local Dockerfile by default (`build: .`) and also tags `image: ghcr.io/photoncody/3dmaster:latest`. Use `docker compose up -d --build` for a local build, or pull the published image if you prefer.
-Compose defaults to `AUTH_ENABLED=true` and requires `AUTH_SECRET` in your environment/`.env`. For a trusted local-only quick start without auth, set `AUTH_ENABLED=false` and `ALLOW_INSECURE_NO_AUTH=true`.
+Compose defaults to `AUTH_ENABLED=true` and requires `AUTH_SECRET` plus `AUTH_BOOTSTRAP_PASSWORD` in your environment/`.env` (bootstrap user defaults to `admin`). For a trusted local-only quick start without auth, set `AUTH_ENABLED=false` and `ALLOW_INSECURE_NO_AUTH=true`.
 
 ### Pull from GHCR
 

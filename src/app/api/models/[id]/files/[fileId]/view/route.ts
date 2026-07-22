@@ -2,7 +2,7 @@ import fs from "fs";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { handleApiError, jsonError } from "@/lib/api";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientIpFromRequest, rateLimit } from "@/lib/rate-limit";
 import { resolveModelStoragePath } from "@/lib/storage";
 
 type Ctx = { params: Promise<{ id: string; fileId: string }> };
@@ -10,18 +10,14 @@ type Ctx = { params: Promise<{ id: string; fileId: string }> };
 const VIEWABLE = new Set(["stl", "obj", "3mf"]);
 const VIEW_MAX = 50 * 1024 * 1024;
 
-function clientIp(request: Request): string {
-  return (
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "local"
-  );
-}
-
 export async function GET(request: Request, ctx: Ctx) {
   try {
     await requireAuth();
-    const limited = rateLimit(`view:${clientIp(request)}`, 60, 60_000);
+    const limited = rateLimit(
+      `view:${clientIpFromRequest(request)}`,
+      60,
+      60_000,
+    );
     if (!limited.ok) return jsonError("Too many view requests", 429);
 
     const { id, fileId } = await ctx.params;

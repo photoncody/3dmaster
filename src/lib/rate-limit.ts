@@ -8,6 +8,26 @@ function pruneExpired(now: number) {
   }
 }
 
+function envBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+/**
+ * Client IP for rate limiting. Forwarded headers are only trusted when
+ * TRUST_PROXY=true (same policy as middleware login throttling).
+ */
+export function clientIpFromRequest(request: Request): string {
+  if (!envBool(process.env.TRUST_PROXY, false)) {
+    return "direct";
+  }
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "direct"
+  );
+}
+
 export function rateLimit(
   key: string,
   limit = 20,

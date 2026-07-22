@@ -5,7 +5,7 @@ import {
   resolveModelStoragePath,
   sanitizeFilename,
 } from "@/lib/storage";
-import { resetRateLimitStore, rateLimit } from "@/lib/rate-limit";
+import { resetRateLimitStore, rateLimit, clientIpFromRequest } from "@/lib/rate-limit";
 import { remainingSeconds, isTimerFinished } from "@/lib/timer";
 import {
   clearSlicerAdapters,
@@ -61,6 +61,26 @@ describe("rateLimit", () => {
     rateLimit("a", 1, 60_000);
     expect(rateLimit("a", 1, 60_000).ok).toBe(false);
     expect(rateLimit("b", 1, 60_000).ok).toBe(true);
+  });
+
+  it("ignores forwarded IPs unless TRUST_PROXY is enabled", () => {
+    const previous = process.env.TRUST_PROXY;
+    try {
+      delete process.env.TRUST_PROXY;
+      const req = new Request("http://localhost", {
+        headers: {
+          "x-forwarded-for": "203.0.113.9",
+          "x-real-ip": "198.51.100.7",
+        },
+      });
+      expect(clientIpFromRequest(req)).toBe("direct");
+
+      process.env.TRUST_PROXY = "true";
+      expect(clientIpFromRequest(req)).toBe("203.0.113.9");
+    } finally {
+      if (previous === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = previous;
+    }
   });
 
   it("prunes expired entries on later checks", () => {

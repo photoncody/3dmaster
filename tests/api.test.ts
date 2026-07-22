@@ -156,6 +156,48 @@ describe("filament API", () => {
       expect.objectContaining({ path: "remainingGrams" }),
     );
   });
+
+  it("rejects partial PATCH that would leave remaining above starting", async () => {
+    const { POST } = await import("@/app/api/filament/route");
+    const { PATCH } = await import("@/app/api/filament/[id]/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "PLA Partial",
+          startingGrams: 1000,
+          remainingGrams: 750,
+          rollCount: 1,
+        }),
+      }),
+    );
+    const roll = await created.json();
+
+    const tooHigh = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remainingGrams: 1200 }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(tooHigh.status).toBe(400);
+    expect(await tooHigh.json()).toEqual({
+      error: "Remaining grams must be less than or equal to starting grams",
+    });
+
+    const lowerStart = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startingGrams: 500 }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(lowerStart.status).toBe(400);
+  });
 });
 
 describe("users API", () => {

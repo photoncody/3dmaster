@@ -79,9 +79,7 @@ export default function PrinterDetailPage({
   const [nextItem, setNextItem] = useState<QueueItem | null>(null);
   const [localRemaining, setLocalRemaining] = useState(0);
   const [completionFetchPending, setCompletionFetchPending] = useState(false);
-  const [completionPromptReady, setCompletionPromptReady] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const previousTimerStatusRef = useRef<string | null>(null);
   const primaryDialogButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: printer, error, loading } = useJson<Printer>(
@@ -95,6 +93,20 @@ export default function PrinterDetailPage({
   );
   const { data: appConfig, error: configError } = useJson<AppConfig>("/api/config");
   const timerStatus = timer?.status ?? null;
+
+  function dismissCompletionPrompt() {
+    if (timer?.updatedAt) {
+      try {
+        sessionStorage.setItem(
+          `completed-prompt:${id}:${timer.updatedAt}`,
+          "1",
+        );
+      } catch {
+        // ignore quota / private-mode failures
+      }
+    }
+    setConsentOpen(false);
+  }
 
   useEffect(() => {
     if (!timer) return;
@@ -121,33 +133,21 @@ export default function PrinterDetailPage({
   }, [timerStatus, completionFetchPending]);
 
   useEffect(() => {
-    const currentStatus = timerStatus;
-    const previousStatus = previousTimerStatusRef.current;
-    if (currentStatus !== previousStatus) {
-      previousTimerStatusRef.current = currentStatus;
+    if (!timer || !printer) return;
+    if (timer.status !== "completed" || !printer.queueItems.length) {
+      return;
     }
-    if (
-      currentStatus === "completed" &&
-      previousStatus !== null &&
-      previousStatus !== "completed"
-    ) {
-      setCompletionPromptReady(true);
+    const key = `completed-prompt:${id}:${timer.updatedAt}`;
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem(key) === "1";
+    } catch {
+      dismissed = false;
     }
-    if (currentStatus && currentStatus !== "completed") {
-      setCompletionPromptReady(false);
-    }
-  }, [timerStatus]);
-
-  useEffect(() => {
-    if (completionPromptReady && printer?.queueItems?.length) {
-      setNextItem(printer.queueItems[0]);
-      setConsentOpen(true);
-      setCompletionPromptReady(false);
-    }
-    if (completionPromptReady && printer?.queueItems?.length === 0) {
-      setCompletionPromptReady(false);
-    }
-  }, [completionPromptReady, printer?.queueItems]);
+    if (dismissed) return;
+    setNextItem(printer.queueItems[0]);
+    setConsentOpen(true);
+  }, [timer, printer, id]);
 
   useEffect(() => {
     if (consentOpen) primaryDialogButtonRef.current?.focus();
@@ -255,7 +255,7 @@ export default function PrinterDetailPage({
 
   async function acceptNextModel() {
     if (!nextItem?.model.files[0]) {
-      setConsentOpen(false);
+      dismissCompletionPrompt();
       return;
     }
     const file = nextItem.model.files[0];
@@ -265,7 +265,7 @@ export default function PrinterDetailPage({
       filename: file.filename,
       downloadUrl: `/api/models/${nextItem.model.id}/files/${file.id}`,
     });
-    setConsentOpen(false);
+    dismissCompletionPrompt();
   }
 
   if (loading) return <p className="muted">Loading printer…</p>;
@@ -477,7 +477,7 @@ export default function PrinterDetailPage({
           role="dialog"
           aria-modal="true"
           onKeyDown={(e) => {
-            if (e.key === "Escape") setConsentOpen(false);
+            if (e.key === "Escape") dismissCompletionPrompt();
           }}
         >
           <div className="modal">
@@ -498,7 +498,7 @@ export default function PrinterDetailPage({
               <button
                 type="button"
                 className="btn secondary"
-                onClick={() => setConsentOpen(false)}
+                onClick={dismissCompletionPrompt}
               >
                 Not now
               </button>

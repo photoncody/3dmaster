@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
 import { config } from "@/lib/config";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientIpFromRequest, rateLimit } from "@/lib/rate-limit";
 import {
   ensureDataDirs,
   getExtension,
@@ -13,14 +13,6 @@ import {
 } from "@/lib/storage";
 
 export const runtime = "nodejs";
-
-function clientIp(request: Request): string {
-  return (
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "local"
-  );
-}
 
 export async function GET() {
   try {
@@ -38,7 +30,11 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await requireAuth();
-    const limited = rateLimit(`upload:${clientIp(request)}`, 20, 60_000);
+    const limited = rateLimit(
+      `upload:${clientIpFromRequest(request)}`,
+      20,
+      60_000,
+    );
     if (!limited.ok) return jsonError("Too many upload requests", 429);
 
     await ensureDataDirs();

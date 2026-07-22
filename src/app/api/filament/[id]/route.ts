@@ -53,6 +53,18 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const { id } = await ctx.params;
     const body = updateSchema.parse(await request.json());
 
+    const existing = await prisma.filamentRoll.findUnique({ where: { id } });
+    if (!existing) return jsonError("Filament not found", 404);
+
+    const nextStarting = body.startingGrams ?? existing.startingGrams;
+    const nextRemaining = body.remainingGrams ?? existing.remainingGrams;
+    if (nextRemaining > nextStarting) {
+      return jsonError(
+        "Remaining grams must be less than or equal to starting grams",
+        400,
+      );
+    }
+
     const data: Record<string, unknown> = { ...body };
     delete data.markDried;
     if (body.markDried) {

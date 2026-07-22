@@ -9,11 +9,11 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET to a long random string}
       ALLOW_INSECURE_NO_AUTH: ${ALLOW_INSECURE_NO_AUTH:-}
       AUTH_CREDENTIALS_ENABLED: ${AUTH_CREDENTIALS_ENABLED:-true}
+      # Local admin created on first credentials login when auth is on.
+      AUTH_BOOTSTRAP_USER: ${AUTH_BOOTSTRAP_USER:-admin}
+      AUTH_BOOTSTRAP_PASSWORD: ${AUTH_BOOTSTRAP_PASSWORD:?Set AUTH_BOOTSTRAP_PASSWORD}
       DATA_DIR: /data
       DATABASE_URL: file:/data/3dmaster.db
-      # Required when AUTH_ENABLED=true and AUTH_CREDENTIALS_ENABLED=true:
-      # AUTH_BOOTSTRAP_USER: ${AUTH_BOOTSTRAP_USER:?Set AUTH_BOOTSTRAP_USER}
-      # AUTH_BOOTSTRAP_PASSWORD: ${AUTH_BOOTSTRAP_PASSWORD:?Set AUTH_BOOTSTRAP_PASSWORD}
       # OIDC_ISSUER: https://idp.example.com/application/o/3dmaster/
       # OIDC_CLIENT_ID: ...
       # OIDC_CLIENT_SECRET: ...
