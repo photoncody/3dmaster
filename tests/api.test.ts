@@ -1,11 +1,19 @@
 import { execSync } from "child_process";
 import path from "path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetRateLimitStore } from "@/lib/rate-limit";
+
+const authMock = vi.hoisted(() => ({
+  session: null as null | { user?: { name?: string | null } },
+}));
 
 vi.mock("@/lib/auth", () => ({
-  requireAuth: async () => null,
-  auth: async () => null,
-  handlers: { GET: async () => new Response("ok"), POST: async () => new Response("ok") },
+  requireAuth: async () => authMock.session,
+  auth: async () => authMock.session,
+  handlers: {
+    GET: async () => new Response("ok"),
+    POST: async () => new Response("ok"),
+  },
   signIn: async () => undefined,
   signOut: async () => undefined,
   oidcConfigured: () => false,
@@ -35,6 +43,10 @@ async function resetDb() {
 }
 
 beforeEach(async () => {
+  process.env.AUTH_ENABLED = "false";
+  process.env.AUTH_BOOTSTRAP_USER = "";
+  authMock.session = null;
+  resetRateLimitStore();
   await resetDb();
 });
 
@@ -113,6 +125,51 @@ describe("filament API", () => {
     expect(dried.status).toBe(200);
     const updated = await dried.json();
     expect(updated.lastDriedAt).toBeTruthy();
+  });
+
+  it("rejects impossible filament bounds", async () => {
+    const { POST } = await import("@/app/api/filament/route");
+    const res = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "PLA Overfill",
+          startingGrams: 1000,
+          remainingGrams: 1001,
+          rollCount: 1,
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Validation failed");
+    expect(body.issues).toContainEqual(
+      expect.objectContaining({ path: "remainingGrams" }),
+    );
+  });
+});
+
+describe("users API", () => {
+  it("allows only the bootstrap admin to create users when auth is enabled", async () => {
+    process.env.AUTH_ENABLED = "true";
+    process.env.AUTH_BOOTSTRAP_USER = "admin";
+    authMock.session = { user: { name: "operator" } };
+
+    const { POST } = await import("@/app/api/users/route");
+    const res = await POST(
+      new Request("http://localhost/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "newuser", password: "password123" }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "Only the bootstrap admin can create users",
+    });
   });
 });
 
@@ -238,6 +295,30 @@ describe("queue + timer + maintenance API", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/Unsupported file type/);
+  });
+
+  it("rejects model names over 200 characters", async () => {
+    const models = await import("@/app/api/models/route");
+    const form = new FormData();
+    form.set("name", "x".repeat(201));
+    form.set(
+      "file",
+      new File(["solid test\nendsolid test\n"], "benchy.stl", {
+        type: "application/octet-stream",
+      }),
+    );
+
+    const res = await models.POST(
+      new Request("http://localhost/api/models", {
+        method: "POST",
+        body: form,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Name must be at most 200 characters",
+    });
   });
 });
 

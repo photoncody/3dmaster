@@ -3,14 +3,24 @@ import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
 import { config } from "@/lib/config";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   ensureDataDirs,
   getExtension,
   isAllowedModelFile,
+  sanitizeFilename,
   writeModelFile,
 } from "@/lib/storage";
 
 export const runtime = "nodejs";
+
+function clientIp(request: Request): string {
+  return (
+    request.headers.get("x-real-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "local"
+  );
+}
 
 export async function GET() {
   try {
@@ -28,6 +38,9 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await requireAuth();
+    const limited = rateLimit(`upload:${clientIp(request)}`, 20, 60_000);
+    if (!limited.ok) return jsonError("Too many upload requests", 429);
+
     await ensureDataDirs();
 
     const form = await request.formData();
@@ -36,8 +49,15 @@ export async function POST(request: Request) {
     const file = form.get("file");
 
     if (!name) return jsonError("Name is required");
+    if (name.length > 200) {
+      return jsonError("Name must be at most 200 characters");
+    }
+    if (description.length > 5000) {
+      return jsonError("Description must be at most 5000 characters");
+    }
     if (!(file instanceof File)) return jsonError("File is required");
-    if (!isAllowedModelFile(file.name)) {
+    const safeName = sanitizeFilename(file.name);
+    if (!isAllowedModelFile(safeName)) {
       return jsonError(
         `Unsupported file type. Allowed: ${config.allowedModelExtensions.join(", ")}`,
       );
@@ -54,12 +74,12 @@ export async function POST(request: Request) {
     });
 
     try {
-      const stored = await writeModelFile(model.id, file.name, buffer);
+      const stored = await writeModelFile(model.id, safeName, buffer);
       await prisma.modelFile.create({
         data: {
           modelId: model.id,
-          filename: file.name,
-          format: getExtension(file.name).replace(".", ""),
+          filename: safeName,
+          format: getExtension(safeName).replace(".", ""),
           storagePath: stored.storagePath,
           sizeBytes: buffer.length,
         },

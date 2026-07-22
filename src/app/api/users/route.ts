@@ -28,9 +28,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireAuth();
+    const session = await requireAuth();
     if (!config.authEnabled) {
       return jsonError("Auth is disabled", 400);
+    }
+    const bootstrap = config.bootstrap.username;
+    if (!bootstrap || session?.user?.name !== bootstrap) {
+      return jsonError("Only the bootstrap admin can create users", 403);
     }
     const body = createSchema.parse(await request.json());
     const passwordHash = await bcrypt.hash(body.password, 12);
