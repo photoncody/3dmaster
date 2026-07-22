@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import { fontDisplay, fontSans } from "@/lib/fonts";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Providers } from "@/components/Providers";
+import { themeInitScript } from "@/lib/theme-script";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,10 @@ export default async function RootLayout({
   const session = config.authEnabled ? await auth() : null;
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className={`${fontSans.variable} ${fontDisplay.variable}`}>
         <Providers>
           <div className="app-shell">

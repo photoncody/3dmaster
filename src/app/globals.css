@@ -1,22 +1,75 @@
 @import "tailwindcss";
 
-:root {
-  --bg: #e8efe8;
-  --bg-elevated: #f4f7f3;
-  --ink: #1a2420;
-  --ink-muted: #4a5c54;
-  --brand: #0f6b4c;
-  --brand-deep: #0a4a35;
+:root,
+[data-theme="light"] {
+  --bg: #e8eef6;
+  --bg-elevated: #f3f7fb;
+  --ink: #152033;
+  --ink-muted: #4a5c74;
+  --brand: #1a5fb4;
+  --brand-deep: #0f3d7a;
+  --brand-soft: rgba(26, 95, 180, 0.12);
+  --brand-softer: rgba(26, 95, 180, 0.08);
   --accent: #c45c26;
-  --line: #c5d2c8;
+  --line: #c5d0de;
   --danger: #b42318;
   --age-unknown: #6b7280;
   --age-green: #15803d;
   --age-yellow: #a16207;
   --age-orange: #c2410c;
   --age-red: #b91c1c;
-  --shadow: 0 18px 40px rgba(26, 36, 32, 0.08);
+  --shadow: 0 18px 40px rgba(21, 32, 51, 0.1);
   --radius: 10px;
+  --header-bg: rgba(243, 247, 251, 0.86);
+  --surface-grad-a: #fbfcfe;
+  --surface-grad-b: #eaf0f7;
+  --btn-ink: #f5f8fc;
+  --field-bg: #ffffff;
+  --viewer-bg: #d5dde8;
+  --banner-border: #d4a017;
+  --banner-bg: #fff7df;
+  --banner-ink: #6b4e00;
+  --modal-scrim: rgba(21, 32, 51, 0.45);
+  --body-glow-brand: rgba(26, 95, 180, 0.16);
+  --body-glow-accent: rgba(196, 92, 38, 0.12);
+  --body-grad-top: #dfe7f2;
+  --body-grad-bottom: #edf2f8;
+  --tick-glow: rgba(26, 95, 180, 0.28);
+}
+
+[data-theme="dark"] {
+  --bg: #0e1620;
+  --bg-elevated: #172231;
+  --ink: #e6eef8;
+  --ink-muted: #9aabc0;
+  --brand: #4f8fd9;
+  --brand-deep: #8bb8ef;
+  --brand-soft: rgba(79, 143, 217, 0.18);
+  --brand-softer: rgba(79, 143, 217, 0.1);
+  --accent: #e07a3a;
+  --line: #2a3a4d;
+  --danger: #f07167;
+  --age-unknown: #9ca3af;
+  --age-green: #4ade80;
+  --age-yellow: #facc15;
+  --age-orange: #fb923c;
+  --age-red: #f87171;
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  --header-bg: rgba(23, 34, 49, 0.88);
+  --surface-grad-a: #1a2838;
+  --surface-grad-b: #14202e;
+  --btn-ink: #0b1220;
+  --field-bg: #0f1a26;
+  --viewer-bg: #1a2838;
+  --banner-border: #8a6a12;
+  --banner-bg: #2a2410;
+  --banner-ink: #f0d78c;
+  --modal-scrim: rgba(4, 8, 14, 0.65);
+  --body-glow-brand: rgba(79, 143, 217, 0.14);
+  --body-glow-accent: rgba(224, 122, 58, 0.1);
+  --body-grad-top: #101820;
+  --body-grad-bottom: #0c121a;
+  --tick-glow: rgba(79, 143, 217, 0.35);
 }
 
 @theme inline {
@@ -40,10 +93,11 @@ body {
   color: var(--ink);
   font-family: var(--font-sans), system-ui, sans-serif;
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(15, 107, 76, 0.14), transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, rgba(196, 92, 38, 0.12), transparent 50%),
-    linear-gradient(180deg, #dfe8df 0%, var(--bg) 40%, #edf2ed 100%);
+    radial-gradient(1200px 600px at 10% -10%, var(--body-glow-brand), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, var(--body-glow-accent), transparent 50%),
+    linear-gradient(180deg, var(--body-grad-top) 0%, var(--bg) 40%, var(--body-grad-bottom) 100%);
   background-attachment: fixed;
+  transition: color 180ms ease, background 180ms ease;
 }
 
 a {
@@ -69,7 +123,7 @@ textarea {
   top: 0;
   z-index: 40;
   backdrop-filter: blur(10px);
-  background: rgba(244, 247, 243, 0.86);
+  background: var(--header-bg);
   border-bottom: 1px solid var(--line);
 }
 
@@ -109,6 +163,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  align-items: center;
 }
 
 .nav a {
@@ -120,8 +175,33 @@ textarea {
 
 .nav a:hover,
 .nav a[data-active="true"] {
-  background: rgba(15, 107, 76, 0.12);
+  background: var(--brand-soft);
   color: var(--brand-deep);
+}
+
+.theme-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.theme-toggle:hover {
+  background: var(--brand-softer);
+  color: var(--brand-deep);
+  border-color: var(--brand);
+}
+
+.theme-toggle-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
 }
 
 .main {
@@ -182,7 +262,7 @@ textarea {
   padding: 1.1rem 1.15rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(160deg, #fbfdfb, #eef5ef);
+  background: linear-gradient(160deg, var(--surface-grad-a), var(--surface-grad-b));
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
@@ -222,7 +302,7 @@ textarea {
   padding: 0.55rem 0.9rem;
   cursor: pointer;
   background: var(--brand);
-  color: #f7fbf8;
+  color: var(--btn-ink);
   transition: background 150ms ease, transform 150ms ease;
 }
 
@@ -241,15 +321,17 @@ textarea {
 }
 
 .btn.secondary:hover {
-  background: rgba(15, 107, 76, 0.08);
+  background: var(--brand-softer);
 }
 
 .btn.danger {
   background: var(--danger);
+  color: #fff;
 }
 
 .btn.accent {
   background: var(--accent);
+  color: #fff;
 }
 
 .btn:disabled {
@@ -278,14 +360,14 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.55rem 0.7rem;
-  background: #fff;
+  background: var(--field-bg);
   color: var(--ink);
 }
 
 .banner {
-  border: 1px solid #d4a017;
-  background: #fff7df;
-  color: #6b4e00;
+  border: 1px solid var(--banner-border);
+  background: var(--banner-bg);
+  color: var(--banner-ink);
   padding: 0.7rem 0.9rem;
   border-radius: 8px;
   margin-bottom: 1rem;
@@ -346,14 +428,14 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
-  background: #d7e0d8;
+  background: var(--viewer-bg);
   margin-top: 0.75rem;
 }
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(26, 36, 32, 0.45);
+  background: var(--modal-scrim);
   display: grid;
   place-items: center;
   z-index: 50;
@@ -387,12 +469,34 @@ textarea {
 
 @keyframes tick-glow {
   from { text-shadow: 0 0 0 transparent; }
-  to { text-shadow: 0 0 18px rgba(15, 107, 76, 0.25); }
+  to { text-shadow: 0 0 18px var(--tick-glow); }
 }
 
 @media (max-width: 720px) {
   .site-header-inner {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .theme-toggle-label {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  .nav a,
+  .theme-toggle,
+  .btn,
+  .printer-link,
+  .age {
+    transition: none;
+  }
+
+  .hero,
+  .modal-backdrop,
+  .age[data-level="red"],
+  .timer-display {
+    animation: none;
   }
 }

@@ -120,8 +120,11 @@ export function ModelViewer({
 
   return (
     <div className="viewer-frame">
-      <Canvas camera={{ position: [80, 60, 80], fov: 45 }}>
-        <color attach="background" args={["#d7e0d8"]} />
+      <Canvas
+        camera={{ position: [80, 60, 80], fov: 45 }}
+        gl={{ alpha: true }}
+        style={{ background: "transparent" }}
+      >
         <ambientLight intensity={0.65} />
         <directionalLight position={[40, 80, 30]} intensity={1.1} />
         <Suspense fallback={null}>
