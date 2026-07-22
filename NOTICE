@@ -1,0 +1,15 @@
+# Third-party notices
+
+3D Master is licensed under the MIT License (see `LICENSE`).
+
+This project depends on open-source packages declared in `package.json` / `package-lock.json`. Their licenses remain with their respective authors.
+
+## Notable transitive native libraries
+
+Next.js may pull in the `sharp` image pipeline and platform packages under `@img/sharp-libvips-*`. Those libvips builds are licensed under **LGPL-3.0-or-later** (some platform packages are dual/multi-licensed; see each package's metadata in `package-lock.json`).
+
+If you redistribute 3D Master (including Docker / GHCR images that contain these native libraries), ensure you satisfy the applicable LGPL obligations for those components. Upstream sources are available via the corresponding npm packages and the [libvips](https://github.com/libvips/libvips) project.
+
+## Fonts
+
+UI fonts are loaded with `next/font/google` (Space Grotesk and Source Serif 4). Those families are typically offered under the SIL Open Font License; see each font's license from Google Fonts / the upstream foundry.

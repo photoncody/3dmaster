@@ -115,4 +115,4 @@ v1 focuses on **download for slicer** (Bambu Studio, PrusaSlicer, etc.). The cod
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Third-party notices (including LGPL libvips via `sharp`) are in [NOTICE](NOTICE). To report security issues, see [SECURITY.md](SECURITY.md).
