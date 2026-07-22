@@ -19,6 +19,7 @@ export default function PrintersPage() {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -41,8 +42,13 @@ export default function PrintersPage() {
 
   async function onDelete(id: string) {
     if (!confirm("Delete this printer and its queue/timer/maintenance?")) return;
-    await apiJson(`/api/printers/${id}`, { method: "DELETE" });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}`, { method: "DELETE" });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to delete printer");
+    }
   }
 
   return (
@@ -89,6 +95,7 @@ export default function PrintersPage() {
         <h2 className="section-title">Your printers</h2>
         {loading ? <p className="muted">Loading…</p> : null}
         {error ? <p className="muted">{error}</p> : null}
+        {mutationError ? <p className="muted">{mutationError}</p> : null}
         {!loading && data?.length === 0 ? (
           <p className="muted">No printers yet. Add one above.</p>
         ) : null}

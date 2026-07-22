@@ -16,22 +16,29 @@ export async function GET(_request: Request, ctx: Ctx) {
   try {
     await requireAuth();
     const { id: printerId } = await ctx.params;
-    let timer = await prisma.printTimer.upsert({
+    const timer = await prisma.printTimer.findUnique({
       where: { printerId },
-      create: { printerId },
-      update: {},
     });
 
-    if (isTimerFinished(timer)) {
-      timer = await prisma.printTimer.update({
-        where: { printerId },
-        data: { status: "completed", pausedRemaining: 0 },
+    if (!timer) {
+      return jsonOk({
+        printerId,
+        status: "idle",
+        durationSeconds: 0,
+        startedAt: null,
+        pausedRemaining: null,
+        linkedQueueItemId: null,
+        remainingSeconds: 0,
       });
     }
 
+    const responseTimer = isTimerFinished(timer)
+      ? { ...timer, status: "completed", pausedRemaining: null }
+      : timer;
+
     return jsonOk({
-      ...timer,
-      remainingSeconds: remainingSeconds(timer),
+      ...responseTimer,
+      remainingSeconds: remainingSeconds(responseTimer),
     });
   } catch (err) {
     return handleApiError(err);
@@ -50,6 +57,19 @@ export async function PATCH(request: Request, ctx: Ctx) {
       update: {},
     });
 
+    if (body.linkedQueueItemId !== undefined && body.linkedQueueItemId !== null) {
+      const queueItem = await prisma.printQueueItem.findFirst({
+        where: { id: body.linkedQueueItemId, printerId },
+        select: { id: true },
+      });
+      if (!queueItem) return jsonError("Linked queue item not found");
+    }
+
+    const linkedQueueItemId =
+      body.linkedQueueItemId === undefined
+        ? current.linkedQueueItemId
+        : body.linkedQueueItemId;
+
     let data: Record<string, unknown> = {};
 
     switch (body.action) {
@@ -62,28 +82,24 @@ export async function PATCH(request: Request, ctx: Ctx) {
           status: "idle",
           startedAt: null,
           pausedRemaining: null,
-          linkedQueueItemId:
-            body.linkedQueueItemId === undefined
-              ? current.linkedQueueItemId
-              : body.linkedQueueItemId,
+          linkedQueueItemId,
         };
         break;
       }
       case "start": {
         const duration =
           body.durationSeconds ??
-          current.pausedRemaining ??
+          (current.status === "paused" ? current.pausedRemaining : null) ??
           current.durationSeconds;
-        if (duration <= 0) return jsonError("Set a duration before starting");
+        if (!duration || duration <= 0) {
+          return jsonError("Set a duration before starting");
+        }
         data = {
           durationSeconds: duration,
           startedAt: new Date(),
           status: "running",
           pausedRemaining: null,
-          linkedQueueItemId:
-            body.linkedQueueItemId === undefined
-              ? current.linkedQueueItemId
-              : body.linkedQueueItemId,
+          linkedQueueItemId,
         };
         break;
       }
@@ -123,7 +139,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       case "complete": {
         data = {
           status: "completed",
-          pausedRemaining: 0,
+          pausedRemaining: null,
           startedAt: null,
         };
         break;

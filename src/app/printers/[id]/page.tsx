@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, use, useEffect, useMemo, useState } from "react";
+import { FormEvent, use, useEffect, useRef, useState } from "react";
 import { AgeText } from "@/components/AgeText";
 import { apiJson, useJson } from "@/lib/client-api";
-import { downloadForSlicer } from "@/features/models/slicer-handoff";
+import {
+  downloadForSlicer,
+  type SlicerHandoffContext,
+} from "@/features/models/slicer-handoff";
+import type { AgeThresholds } from "@/lib/age-color";
 
 type ModelFile = {
   id: string;
@@ -37,6 +41,7 @@ type Timer = {
   durationSeconds: number;
   remainingSeconds: number;
   linkedQueueItemId: string | null;
+  updatedAt: string;
 };
 
 type Printer = {
@@ -46,6 +51,10 @@ type Printer = {
   queueItems: QueueItem[];
   maintenance: Maintenance | null;
   timer: Timer | null;
+};
+
+type AppConfig = {
+  cleanThresholdsDays: AgeThresholds;
 };
 
 function formatTime(total: number) {
@@ -69,7 +78,11 @@ export default function PrinterDetailPage({
   const [consentOpen, setConsentOpen] = useState(false);
   const [nextItem, setNextItem] = useState<QueueItem | null>(null);
   const [localRemaining, setLocalRemaining] = useState(0);
-  const [completedPrompted, setCompletedPrompted] = useState(false);
+  const [completionFetchPending, setCompletionFetchPending] = useState(false);
+  const [completionPromptReady, setCompletionPromptReady] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const previousTimerStatusRef = useRef<string | null>(null);
+  const primaryDialogButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: printer, error, loading } = useJson<Printer>(
     `/api/printers/${id}`,
@@ -80,59 +93,90 @@ export default function PrinterDetailPage({
     `/api/printers/${id}/timer`,
     refresh,
   );
+  const { data: appConfig, error: configError } = useJson<AppConfig>("/api/config");
+  const timerStatus = timer?.status ?? null;
 
   useEffect(() => {
     if (!timer) return;
     setLocalRemaining(timer.remainingSeconds);
-    if (timer.status !== "completed") setCompletedPrompted(false);
+    if (timer.status !== "running") setCompletionFetchPending(false);
   }, [timer]);
 
   useEffect(() => {
-    if (!timer || timer.status !== "running") return;
+    if (timerStatus !== "running" || completionFetchPending) return;
     const handle = window.setInterval(() => {
       setLocalRemaining((r) => {
         if (r <= 1) {
           window.clearInterval(handle);
-          setRefresh((n) => n + 1);
+          setCompletionFetchPending((pending) => {
+            if (!pending) setRefresh((n) => n + 1);
+            return true;
+          });
           return 0;
         }
         return r - 1;
       });
     }, 1000);
     return () => window.clearInterval(handle);
-  }, [timer?.status, timer, refresh]);
+  }, [timerStatus, completionFetchPending]);
 
   useEffect(() => {
+    const currentStatus = timerStatus;
+    const previousStatus = previousTimerStatusRef.current;
+    if (currentStatus !== previousStatus) {
+      previousTimerStatusRef.current = currentStatus;
+    }
     if (
-      timer?.status === "completed" &&
-      printer?.queueItems?.length &&
-      !completedPrompted
+      currentStatus === "completed" &&
+      previousStatus !== null &&
+      previousStatus !== "completed"
     ) {
+      setCompletionPromptReady(true);
+    }
+    if (currentStatus && currentStatus !== "completed") {
+      setCompletionPromptReady(false);
+    }
+  }, [timerStatus]);
+
+  useEffect(() => {
+    if (completionPromptReady && printer?.queueItems?.length) {
       setNextItem(printer.queueItems[0]);
       setConsentOpen(true);
-      setCompletedPrompted(true);
+      setCompletionPromptReady(false);
     }
-  }, [timer?.status, printer?.queueItems, completedPrompted]);
+    if (completionPromptReady && printer?.queueItems?.length === 0) {
+      setCompletionPromptReady(false);
+    }
+  }, [completionPromptReady, printer?.queueItems]);
 
-  const thresholds = useMemo(
-    () => ({ green: 7, yellow: 14, orange: 30 }),
-    [],
-  );
+  useEffect(() => {
+    if (consentOpen) primaryDialogButtonRef.current?.focus();
+  }, [consentOpen]);
 
   async function addToQueue(e: FormEvent) {
     e.preventDefault();
     if (!selectedModelId) return;
-    await apiJson(`/api/printers/${id}/queue`, {
-      method: "POST",
-      body: JSON.stringify({ modelId: selectedModelId }),
-    });
-    setSelectedModelId("");
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/queue`, {
+        method: "POST",
+        body: JSON.stringify({ modelId: selectedModelId }),
+      });
+      setSelectedModelId("");
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to queue model");
+    }
   }
 
   async function removeQueueItem(itemId: string) {
-    await apiJson(`/api/printers/${id}/queue/${itemId}`, { method: "DELETE" });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/queue/${itemId}`, { method: "DELETE" });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update queue");
+    }
   }
 
   async function moveQueueItem(itemId: string, direction: -1 | 1) {
@@ -144,49 +188,78 @@ export default function PrinterDetailPage({
     const next = [...ids];
     const [item] = next.splice(index, 1);
     next.splice(target, 0, item);
-    await apiJson(`/api/printers/${id}/queue`, {
-      method: "PUT",
-      body: JSON.stringify({ orderedIds: next }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/queue`, {
+        method: "PUT",
+        body: JSON.stringify({ orderedIds: next }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to reorder queue");
+    }
   }
 
   async function markCleaned() {
-    await apiJson(`/api/printers/${id}/maintenance`, {
-      method: "PATCH",
-      body: JSON.stringify({ markCleaned: true }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/maintenance`, {
+        method: "PATCH",
+        body: JSON.stringify({ markCleaned: true }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update maintenance");
+    }
   }
 
   async function markNozzle() {
-    await apiJson(`/api/printers/${id}/maintenance`, {
-      method: "PATCH",
-      body: JSON.stringify({ markNozzleInstalled: true }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/maintenance`, {
+        method: "PATCH",
+        body: JSON.stringify({ markNozzleInstalled: true }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update maintenance");
+    }
   }
 
   async function timerAction(action: string) {
     const durationSeconds = hours * 3600 + minutes * 60;
-    await apiJson(`/api/printers/${id}/timer`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        action,
-        durationSeconds:
-          action === "set" || action === "start" ? durationSeconds : undefined,
-      }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/printers/${id}/timer`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          action,
+          durationSeconds:
+            action === "set" || action === "start" ? durationSeconds : undefined,
+        }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update timer");
+    }
   }
 
-  function acceptNextModel() {
+  async function downloadModel(ctx: SlicerHandoffContext) {
+    setMutationError(null);
+    try {
+      await downloadForSlicer(ctx);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Download failed");
+    }
+  }
+
+  async function acceptNextModel() {
     if (!nextItem?.model.files[0]) {
       setConsentOpen(false);
       return;
     }
     const file = nextItem.model.files[0];
-    downloadForSlicer({
+    await downloadModel({
       modelId: nextItem.model.id,
       fileId: file.id,
       filename: file.filename,
@@ -198,19 +271,23 @@ export default function PrinterDetailPage({
   if (loading) return <p className="muted">Loading printer…</p>;
   if (error || !printer) return <p className="muted">{error || "Not found"}</p>;
 
-  const status = timer?.status || "idle";
+  const status = timerStatus || "idle";
 
   return (
     <div>
-      <p className="muted" style={{ marginBottom: "0.75rem" }}>
-        <Link href="/printers">← Printers</Link>
-      </p>
-      <section className="hero">
-        <h1>{printer.name}</h1>
-        <p>{printer.notes || "Queue, maintenance, and timer for this machine."}</p>
-      </section>
+      <div aria-hidden={consentOpen ? true : undefined}>
+        <p className="muted" style={{ marginBottom: "0.75rem" }}>
+          <Link href="/printers">← Printers</Link>
+        </p>
+        <section className="hero">
+          <h1>{printer.name}</h1>
+          <p>{printer.notes || "Queue, maintenance, and timer for this machine."}</p>
+        </section>
 
-      <div className="panel">
+        {mutationError ? <p className="muted">{mutationError}</p> : null}
+        {configError ? <p className="muted">{configError}</p> : null}
+
+        <div className="panel">
         <h2 className="section-title">Print timer</h2>
         <div className="timer-display" data-status={status} aria-live="polite">
           {formatTime(localRemaining)}
@@ -262,9 +339,9 @@ export default function PrinterDetailPage({
             Mark complete
           </button>
         </div>
-      </div>
+        </div>
 
-      <div className="panel">
+        <div className="panel">
         <h2 className="section-title">Print queue</h2>
         <form className="row" onSubmit={addToQueue}>
           <div className="field">
@@ -332,7 +409,7 @@ export default function PrinterDetailPage({
                       type="button"
                       className="btn secondary"
                       onClick={() =>
-                        downloadForSlicer({
+                        downloadModel({
                           modelId: item.model.id,
                           fileId: item.model.files[0].id,
                           filename: item.model.files[0].filename,
@@ -355,24 +432,32 @@ export default function PrinterDetailPage({
             ))
           )}
         </div>
-      </div>
+        </div>
 
-      <div className="panel">
+        <div className="panel">
         <h2 className="section-title">Maintenance</h2>
         <div className="stack">
           <p>
             Last cleaned:{" "}
-            <AgeText
-              date={printer.maintenance?.lastCleanedAt}
-              thresholds={thresholds}
-            />
+            {appConfig ? (
+              <AgeText
+                date={printer.maintenance?.lastCleanedAt}
+                thresholds={appConfig.cleanThresholdsDays}
+              />
+            ) : (
+              <span className="muted">Loading…</span>
+            )}
           </p>
           <p>
             Nozzle installed:{" "}
-            <AgeText
-              date={printer.maintenance?.nozzleInstalledAt}
-              thresholds={thresholds}
-            />
+            {appConfig ? (
+              <AgeText
+                date={printer.maintenance?.nozzleInstalledAt}
+                thresholds={appConfig.cleanThresholdsDays}
+              />
+            ) : (
+              <span className="muted">Loading…</span>
+            )}
           </p>
           <div className="row">
             <button type="button" className="btn" onClick={markCleaned}>
@@ -383,10 +468,18 @@ export default function PrinterDetailPage({
             </button>
           </div>
         </div>
+        </div>
       </div>
 
       {consentOpen && nextItem ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setConsentOpen(false);
+          }}
+        >
           <div className="modal">
             <h2 className="section-title">Print finished</h2>
             <p>
@@ -394,7 +487,12 @@ export default function PrinterDetailPage({
               <strong>{nextItem.model.name}</strong> for your slicer?
             </p>
             <div className="row" style={{ marginTop: "1rem" }}>
-              <button type="button" className="btn" onClick={acceptNextModel}>
+              <button
+                ref={primaryDialogButtonRef}
+                type="button"
+                className="btn"
+                onClick={acceptNextModel}
+              >
                 Yes, download next
               </button>
               <button

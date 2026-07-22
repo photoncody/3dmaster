@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AgeText } from "@/components/AgeText";
 import { apiJson, useJson } from "@/lib/client-api";
+import type { AgeThresholds } from "@/lib/age-color";
 
 type Filament = {
   id: string;
@@ -18,11 +19,18 @@ type Filament = {
   notes: string;
 };
 
+type AppConfig = {
+  dryThresholdsDays: AgeThresholds;
+};
+
 export default function FilamentPage() {
   const [refresh, setRefresh] = useState(0);
   const { data, error, loading } = useJson<Filament[]>("/api/filament", refresh);
+  const { data: appConfig, error: configError } = useJson<AppConfig>("/api/config");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [remainingInputs, setRemainingInputs] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     name: "",
     manufacturer: "",
@@ -35,10 +43,14 @@ export default function FilamentPage() {
     notes: "",
   });
 
-  const dryThresholds = useMemo(
-    () => ({ green: 3, yellow: 7, orange: 14 }),
-    [],
-  );
+  useEffect(() => {
+    if (!data) return;
+    setRemainingInputs(
+      Object.fromEntries(
+        data.map((roll) => [roll.id, String(roll.remainingGrams)]),
+      ),
+    );
+  }, [data]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -69,33 +81,58 @@ export default function FilamentPage() {
   }
 
   async function markDried(id: string) {
-    await apiJson(`/api/filament/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ markDried: true }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ markDried: true }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update filament");
+    }
   }
 
   async function toggleOpened(roll: Filament) {
-    await apiJson(`/api/filament/${roll.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ openedFromBag: !roll.openedFromBag }),
-    });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${roll.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ openedFromBag: !roll.openedFromBag }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update filament");
+    }
   }
 
-  async function updateRemaining(id: string, remainingGrams: number) {
-    await apiJson(`/api/filament/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ remainingGrams }),
-    });
-    setRefresh((n) => n + 1);
+  async function updateRemaining(id: string, value: string) {
+    const remainingGrams = Number(value);
+    setMutationError(null);
+    if (!Number.isFinite(remainingGrams)) {
+      setMutationError("Remaining grams must be a number");
+      return;
+    }
+    try {
+      await apiJson(`/api/filament/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ remainingGrams }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to update filament");
+    }
   }
 
   async function onDelete(id: string) {
     if (!confirm("Remove this filament entry?")) return;
-    await apiJson(`/api/filament/${id}`, { method: "DELETE" });
-    setRefresh((n) => n + 1);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${id}`, { method: "DELETE" });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to delete filament");
+    }
   }
 
   return (
@@ -208,6 +245,8 @@ export default function FilamentPage() {
         <h2 className="section-title">Inventory</h2>
         {loading ? <p className="muted">Loading…</p> : null}
         {error ? <p className="muted">{error}</p> : null}
+        {configError ? <p className="muted">{configError}</p> : null}
+        {mutationError ? <p className="muted">{mutationError}</p> : null}
         {data?.length === 0 ? <p className="muted">No filament yet.</p> : null}
         {data?.map((roll) => {
           const pct = Math.round(
@@ -230,7 +269,14 @@ export default function FilamentPage() {
                 </p>
                 <p>
                   Last dried:{" "}
-                  <AgeText date={roll.lastDriedAt} thresholds={dryThresholds} />
+                  {appConfig ? (
+                    <AgeText
+                      date={roll.lastDriedAt}
+                      thresholds={appConfig.dryThresholdsDays}
+                    />
+                  ) : (
+                    <span className="muted">Loading…</span>
+                  )}
                 </p>
                 <p className="muted">
                   Bag: {roll.openedFromBag ? "Opened" : "Sealed"}
@@ -266,10 +312,16 @@ export default function FilamentPage() {
                     <input
                       type="number"
                       min={0}
-                      defaultValue={roll.remainingGrams}
-                      onBlur={(e) =>
-                        updateRemaining(roll.id, Number(e.target.value))
+                      value={
+                        remainingInputs[roll.id] ?? String(roll.remainingGrams)
                       }
+                      onChange={(e) =>
+                        setRemainingInputs((inputs) => ({
+                          ...inputs,
+                          [roll.id]: e.target.value,
+                        }))
+                      }
+                      onBlur={(e) => updateRemaining(roll.id, e.target.value)}
                     />
                   </div>
                 </div>

@@ -278,6 +278,153 @@ describe("queue + timer + maintenance API", () => {
     expect(await remaining.json()).toHaveLength(0);
   });
 
+  it("reports elapsed timers as completed on GET without mutating storage", async () => {
+    const { prisma } = await import("@/lib/db");
+    const timer = await import("@/app/api/printers/[id]/timer/route");
+    const printer = await prisma.printer.create({
+      data: {
+        name: "Timer test",
+        timer: {
+          create: {
+            status: "running",
+            durationSeconds: 1,
+            startedAt: new Date(Date.now() - 10_000),
+            pausedRemaining: 0,
+          },
+        },
+      },
+    });
+
+    const res = await timer.GET(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("completed");
+    expect(body.remainingSeconds).toBe(0);
+    expect(body.pausedRemaining).toBeNull();
+
+    const stored = await prisma.printTimer.findUnique({
+      where: { printerId: printer.id },
+    });
+    expect(stored?.status).toBe("running");
+    expect(stored?.pausedRemaining).toBe(0);
+  });
+
+  it("validates linked queue items and clears links when deleting queue items", async () => {
+    const { prisma } = await import("@/lib/db");
+    const timer = await import("@/app/api/printers/[id]/timer/route");
+    const queueItem = await import(
+      "@/app/api/printers/[id]/queue/[itemId]/route"
+    );
+    const model = await prisma.model.create({ data: { name: "Linked model" } });
+    const printer = await prisma.printer.create({
+      data: { name: "Linked printer", timer: { create: {} } },
+    });
+    const otherPrinter = await prisma.printer.create({
+      data: { name: "Other printer", timer: { create: {} } },
+    });
+    const item = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 0 },
+    });
+    const otherItem = await prisma.printQueueItem.create({
+      data: { printerId: otherPrinter.id, modelId: model.id, position: 0 },
+    });
+
+    const invalidLink = await timer.PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set",
+          durationSeconds: 60,
+          linkedQueueItemId: otherItem.id,
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(invalidLink.status).toBe(400);
+
+    const linked = await timer.PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set",
+          durationSeconds: 60,
+          linkedQueueItemId: item.id,
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(linked.status).toBe(200);
+    expect((await linked.json()).linkedQueueItemId).toBe(item.id);
+
+    const removed = await queueItem.DELETE(
+      new Request(
+        `http://localhost/api/printers/${printer.id}/queue/${item.id}`,
+        { method: "DELETE" },
+      ),
+      { params: Promise.resolve({ id: printer.id, itemId: item.id }) },
+    );
+    expect(removed.status).toBe(200);
+
+    const stored = await prisma.printTimer.findUnique({
+      where: { printerId: printer.id },
+    });
+    expect(stored?.linkedQueueItemId).toBeNull();
+  });
+
+  it("requires queue reorder ids to be an exact permutation", async () => {
+    const { prisma } = await import("@/lib/db");
+    const queue = await import("@/app/api/printers/[id]/queue/route");
+    const model = await prisma.model.create({ data: { name: "Reorder model" } });
+    const printer = await prisma.printer.create({ data: { name: "Queue" } });
+    const first = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 0 },
+    });
+    const second = await prisma.printQueueItem.create({
+      data: { printerId: printer.id, modelId: model.id, position: 1 },
+    });
+
+    const missing = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(missing.status).toBe(400);
+
+    const duplicate = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id, second.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(duplicate.status).toBe(400);
+
+    const reordered = await queue.PUT(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: [second.id, first.id] }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(reordered.status).toBe(200);
+    const body = await reordered.json();
+    expect(body.map((item: { id: string; position: number }) => item.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+    expect(body.map((item: { position: number }) => item.position)).toEqual([0, 1]);
+  });
+
   it("rejects disallowed model uploads", async () => {
     const models = await import("@/app/api/models/route");
     const form = new FormData();
