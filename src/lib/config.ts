@@ -98,8 +98,15 @@ export const config = {
 };
 
 export function assertAuthConfig(): void {
+  // Skip runtime production guards during `next build` (NODE_ENV=production there).
+  const isNextBuild = process.env.NEXT_PHASE === "phase-production-build";
+
   if (!config.authEnabled) {
-    if (process.env.NODE_ENV === "production" && !config.allowInsecureNoAuth) {
+    if (
+      process.env.NODE_ENV === "production" &&
+      !config.allowInsecureNoAuth &&
+      !isNextBuild
+    ) {
       throw new Error(
         "AUTH_ENABLED=false is not allowed in production unless ALLOW_INSECURE_NO_AUTH=true.",
       );

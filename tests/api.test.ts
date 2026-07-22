@@ -9,6 +9,13 @@ const authMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth", () => ({
   requireAuth: async () => authMock.session,
+  requireBootstrapAdmin: async () => {
+    const bootstrap = process.env.AUTH_BOOTSTRAP_USER || "";
+    if (!bootstrap || authMock.session?.user?.name !== bootstrap) {
+      throw new Error("Forbidden");
+    }
+    return authMock.session;
+  },
   auth: async () => authMock.session,
   handlers: {
     GET: async () => new Response("ok"),
@@ -167,9 +174,7 @@ describe("users API", () => {
     );
 
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({
-      error: "Only the bootstrap admin can create users",
-    });
+    expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 });
 
@@ -477,5 +482,12 @@ describe("health API", () => {
     const body = await res.json();
     expect(body.status).toBe("ok");
     expect(body.app).toBe("3D Master");
+  });
+
+  it("ready checks the database", async () => {
+    const { GET } = await import("@/app/api/health/ready/route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, db: true });
   });
 });

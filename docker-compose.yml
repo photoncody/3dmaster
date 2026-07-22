@@ -1,7 +1,7 @@
 services:
   3dmaster:
     image: ghcr.io/photoncody/3dmaster:latest
-    # build: .
+    build: .
     ports:
       - "3000:3000"
     environment:

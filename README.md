@@ -14,21 +14,22 @@ Manage **printers**, **model inventory**, **filament**, **maintenance**, and **p
 - **Printer maintenance** — nozzle age, last cleaned, one-click “cleaned now” with age-colored reminders
 - **Print timer** — countdown per printer; when finished, optionally download the next queued model (with consent)
 - **Multi-printer** — each printer has its own queue, maintenance, and timer
-- **Optional auth** — disabled by default; enable OIDC (group-gated) and/or username/password
+- **Optional auth** — off for local/dev; Docker Compose defaults to auth on with OIDC (group-gated) and/or username/password
 
 ## Quick start (Docker Compose)
 
 ```bash
 cp .env.example .env
-# for exposed installs, set AUTH_ENABLED=true, AUTH_SECRET, and auth credentials/OIDC
-docker compose up -d
+# set AUTH_SECRET=$(openssl rand -base64 32) — required by Compose (auth on by default)
+# optional: AUTH_BOOTSTRAP_USER / AUTH_BOOTSTRAP_PASSWORD for local logins
+docker compose up -d --build
 ```
 
 Open http://localhost:3000
 
 Persistent data (database + model files) lives in the `3dmaster-data` volume at `/data`.
-The compose file pulls the published image by default. To build locally with Compose, uncomment `build: .` in `docker-compose.yml`, then run `docker compose up -d --build`.
-Compose defaults to `AUTH_ENABLED=true` and requires `AUTH_SECRET`. For a trusted local-only quick start without auth, set `AUTH_ENABLED=false` and `ALLOW_INSECURE_NO_AUTH=true`.
+Compose builds from the local Dockerfile by default (`build: .`) and also tags `image: ghcr.io/photoncody/3dmaster:latest`. Use `docker compose up -d --build` for a local build, or pull the published image if you prefer.
+Compose defaults to `AUTH_ENABLED=true` and requires `AUTH_SECRET` in your environment/`.env`. For a trusted local-only quick start without auth, set `AUTH_ENABLED=false` and `ALLOW_INSECURE_NO_AUTH=true`.
 
 ### Pull from GHCR
 
