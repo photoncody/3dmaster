@@ -118,10 +118,6 @@ export default function ModelsPage() {
     <div>
       <section className="hero">
         <h1>Model inventory</h1>
-        <p>
-          Upload STL, 3MF, and other print files. They stay on this server until
-          you remove them. Preview is collapsed by default.
-        </p>
       </section>
 
       <div className="panel">
