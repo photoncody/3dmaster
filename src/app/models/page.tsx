@@ -117,7 +117,7 @@ export default function ModelsPage() {
   return (
     <div>
       <section className="hero">
-        <h1>Model inventory</h1>
+        <h1>Models</h1>
       </section>
 
       <div className="panel">
