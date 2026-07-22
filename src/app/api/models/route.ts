@@ -18,7 +18,7 @@ export async function GET() {
   try {
     await requireAuth();
     const models = await prisma.model.findMany({
-      orderBy: { updatedAt: "desc" },
+      orderBy: { name: "asc" },
       include: { files: true, _count: { select: { queueItems: true } } },
     });
     return jsonOk(models);

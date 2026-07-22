@@ -47,17 +47,22 @@ export default function ModelsPage() {
   const filtered = useMemo(() => {
     const models = data ?? [];
     const q = search.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter((model) => {
-      const haystack = [
-        model.name,
-        model.description,
-        ...model.files.map((f) => `${f.filename} ${f.format}`),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
+    const matched = q
+      ? models.filter((model) => {
+          const haystack = [
+            model.name,
+            model.description,
+            ...model.files.map((f) => `${f.filename} ${f.format}`),
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        })
+      : models;
+
+    return [...matched].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
   }, [data, search]);
 
   async function onUpload(e: FormEvent) {
