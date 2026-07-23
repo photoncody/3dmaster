@@ -304,6 +304,10 @@ textarea {
   background: var(--brand);
   color: var(--btn-ink);
   transition: background 150ms ease, transform 150ms ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn:hover {
@@ -413,6 +417,154 @@ textarea {
 
 .list-item:last-child {
   border-bottom: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+.toolbar .field {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.btn.sm {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 -0.15rem;
+}
+
+.inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.inventory-table th,
+.inventory-table td {
+  text-align: left;
+  padding: 0.4rem 0.45rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.inventory-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.inventory-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.inventory-table th.sortable:hover {
+  color: var(--brand-deep);
+}
+
+.inventory-table th[aria-sort="ascending"]::after,
+.inventory-table th[aria-sort="descending"]::after {
+  margin-left: 0.3rem;
+  color: var(--brand);
+}
+
+.inventory-table th[aria-sort="ascending"]::after {
+  content: "↑";
+}
+
+.inventory-table th[aria-sort="descending"]::after {
+  content: "↓";
+}
+
+.inventory-table tbody tr:hover {
+  background: var(--brand-softer);
+}
+
+.inventory-table .actions {
+  white-space: nowrap;
+}
+
+.inventory-table .actions .row {
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+.remaining-cell {
+  min-width: 140px;
+}
+
+.meter {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.meter-track {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--age-green);
+  transition: width 220ms ease;
+}
+
+.meter-fill[data-level="yellow"] {
+  background: var(--age-yellow);
+}
+
+.meter-fill[data-level="orange"] {
+  background: var(--age-orange);
+}
+
+.meter-fill[data-level="red"] {
+  background: var(--age-red);
+}
+
+.meter-label {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.inline-remaining {
+  width: 5.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  background: var(--field-bg);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.list-item.compact {
+  padding: 0.55rem 0;
+  align-items: center;
+}
+
+.list-item.compact .muted {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+}
+
+.modal.wide {
+  width: min(560px, 100%);
 }
 
 .site-footer {

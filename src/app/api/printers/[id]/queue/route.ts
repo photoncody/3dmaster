@@ -7,7 +7,16 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const addSchema = z.object({
   modelId: z.string().min(1),
+  durationSeconds: z.number().int().min(0).max(60 * 60 * 48).optional(),
 });
+
+async function hasActivePrint(printerId: string) {
+  const active = await prisma.printQueueItem.findFirst({
+    where: { printerId, status: "printing" },
+    select: { id: true },
+  });
+  return Boolean(active);
+}
 
 export async function GET(_request: Request, ctx: Ctx) {
   try {
@@ -35,7 +44,56 @@ export async function POST(request: Request, ctx: Ctx) {
     const model = await prisma.model.findUnique({ where: { id: body.modelId } });
     if (!model) return jsonError("Model not found", 404);
 
+    const activelyPrinting = await hasActivePrint(printerId);
+    const durationSeconds = body.durationSeconds;
+
+    if (!activelyPrinting) {
+      if (!durationSeconds || durationSeconds <= 0) {
+        return jsonError("Duration is required to start a print");
+      }
+    }
+
     const item = await prisma.$transaction(async (tx) => {
+      if (!activelyPrinting) {
+        // New active print goes to the front; bump existing queued items.
+        await tx.printQueueItem.updateMany({
+          where: { printerId },
+          data: { position: { increment: 1 } },
+        });
+
+        const created = await tx.printQueueItem.create({
+          data: {
+            printerId,
+            modelId: body.modelId,
+            position: 0,
+            status: "printing",
+            estimatedDurationSeconds: durationSeconds,
+          },
+          include: { model: { include: { files: true } } },
+        });
+
+        await tx.printTimer.upsert({
+          where: { printerId },
+          create: {
+            printerId,
+            durationSeconds: durationSeconds!,
+            startedAt: new Date(),
+            status: "running",
+            pausedRemaining: null,
+            linkedQueueItemId: created.id,
+          },
+          update: {
+            durationSeconds: durationSeconds!,
+            startedAt: new Date(),
+            status: "running",
+            pausedRemaining: null,
+            linkedQueueItemId: created.id,
+          },
+        });
+
+        return created;
+      }
+
       const max = await tx.printQueueItem.aggregate({
         where: { printerId },
         _max: { position: true },
@@ -43,10 +101,18 @@ export async function POST(request: Request, ctx: Ctx) {
       const position = (max._max.position ?? -1) + 1;
 
       return tx.printQueueItem.create({
-        data: { printerId, modelId: body.modelId, position },
+        data: {
+          printerId,
+          modelId: body.modelId,
+          position,
+          status: "queued",
+          estimatedDurationSeconds:
+            durationSeconds && durationSeconds > 0 ? durationSeconds : null,
+        },
         include: { model: { include: { files: true } } },
       });
     });
+
     return jsonOk(item, { status: 201 });
   } catch (err) {
     return handleApiError(err);
@@ -65,7 +131,8 @@ export async function PUT(request: Request, ctx: Ctx) {
 
     const existing = await prisma.printQueueItem.findMany({
       where: { printerId },
-      select: { id: true },
+      select: { id: true, status: true, position: true },
+      orderBy: { position: "asc" },
     });
     const existingIds = existing.map((item) => item.id);
     const requestedIds = new Set(body.orderedIds);
@@ -76,6 +143,11 @@ export async function PUT(request: Request, ctx: Ctx) {
 
     if (!sameLength || !noDuplicates || !sameSet || requestedIds.size !== existingIdSet.size) {
       return jsonError("orderedIds must include every queue item exactly once");
+    }
+
+    const active = existing.find((item) => item.status === "printing");
+    if (active && body.orderedIds[0] !== active.id) {
+      return jsonError("The active print must stay at the front of the queue");
     }
 
     await prisma.$transaction(

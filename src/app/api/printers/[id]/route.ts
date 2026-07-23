@@ -7,6 +7,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const updateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
+  model: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
 });
 

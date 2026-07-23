@@ -69,12 +69,17 @@ describe("printers API", () => {
       new Request("http://localhost/api/printers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "X1C", notes: "bench" }),
+        body: JSON.stringify({
+          name: "Workshop A",
+          model: "X1C",
+          notes: "bench",
+        }),
       }),
     );
     expect(created.status).toBe(201);
     const printer = await created.json();
-    expect(printer.name).toBe("X1C");
+    expect(printer.name).toBe("Workshop A");
+    expect(printer.model).toBe("X1C");
     expect(printer.maintenance).toBeTruthy();
     expect(printer.timer).toBeTruthy();
 
@@ -95,6 +100,42 @@ describe("printers API", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("updates printer name, model, and notes", async () => {
+    const { POST } = await import("@/app/api/printers/route");
+    const { PATCH } = await import("@/app/api/printers/[id]/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/printers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Old name",
+          model: "A1",
+          notes: "bay 1",
+        }),
+      }),
+    );
+    const printer = await created.json();
+
+    const updatedRes = await PATCH(
+      new Request(`http://localhost/api/printers/${printer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "New name",
+          model: "X1C",
+          notes: "bay 2",
+        }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(updatedRes.status).toBe(200);
+    const updated = await updatedRes.json();
+    expect(updated.name).toBe("New name");
+    expect(updated.model).toBe("X1C");
+    expect(updated.notes).toBe("bay 2");
+  });
 });
 
 describe("filament API", () => {
@@ -107,11 +148,12 @@ describe("filament API", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: "PLA Black",
           manufacturer: "Generic",
+          material: "PLA",
+          color: "Black",
           startingGrams: 1000,
           remainingGrams: 750,
-          rollCount: 2,
+          rollCount: 1,
           openedFromBag: true,
         }),
       }),
@@ -119,6 +161,8 @@ describe("filament API", () => {
     expect(created.status).toBe(201);
     const roll = await created.json();
     expect(roll.remainingGrams).toBe(750);
+    expect(roll.rollCount).toBe(1);
+    expect(roll.name).toBe("Generic · PLA · Black");
     expect(roll.lastDriedAt).toBeNull();
 
     const dried = await PATCH(
@@ -134,6 +178,38 @@ describe("filament API", () => {
     expect(updated.lastDriedAt).toBeTruthy();
   });
 
+  it("creates separate inventory rows for rollCount > 1", async () => {
+    const { POST, GET } = await import("@/app/api/filament/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          manufacturer: "Bambu",
+          material: "PETG",
+          color: "Blue",
+          startingGrams: 1000,
+          rollCount: 3,
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const rolls = await created.json();
+    expect(Array.isArray(rolls)).toBe(true);
+    expect(rolls).toHaveLength(3);
+    expect(rolls.every((roll: { rollCount: number }) => roll.rollCount === 1)).toBe(
+      true,
+    );
+
+    const listed = await GET();
+    const inventory = await listed.json();
+    const createdIds = new Set(rolls.map((roll: { id: string }) => roll.id));
+    expect(inventory.filter((roll: { id: string }) => createdIds.has(roll.id))).toHaveLength(
+      3,
+    );
+  });
+
   it("rejects impossible filament bounds", async () => {
     const { POST } = await import("@/app/api/filament/route");
     const res = await POST(
@@ -141,7 +217,7 @@ describe("filament API", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: "PLA Overfill",
+          material: "PLA",
           startingGrams: 1000,
           remainingGrams: 1001,
           rollCount: 1,
@@ -265,13 +341,23 @@ describe("queue + timer + maintenance API", () => {
       new Request(`http://localhost/api/printers/${printer.id}/queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId: model.id }),
+        body: JSON.stringify({ modelId: model.id, durationSeconds: 120 }),
       }),
       { params: Promise.resolve({ id: printer.id }) },
     );
     expect(queued.status).toBe(201);
     const item = await queued.json();
     expect(item.position).toBe(0);
+    expect(item.status).toBe("printing");
+
+    const timerState = await timer.GET(
+      new Request(`http://localhost/api/printers/${printer.id}/timer`),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    const runningFromPrint = await timerState.json();
+    expect(runningFromPrint.status).toBe("running");
+    expect(runningFromPrint.linkedQueueItemId).toBe(item.id);
+    expect(runningFromPrint.remainingSeconds).toBeGreaterThan(0);
 
     const cleaned = await maintenance.PATCH(
       new Request(`http://localhost/api/printers/${printer.id}/maintenance`, {
@@ -284,19 +370,6 @@ describe("queue + timer + maintenance API", () => {
     expect(cleaned.status).toBe(200);
     expect((await cleaned.json()).lastCleanedAt).toBeTruthy();
 
-    const started = await timer.PATCH(
-      new Request(`http://localhost/api/printers/${printer.id}/timer`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", durationSeconds: 120 }),
-      }),
-      { params: Promise.resolve({ id: printer.id }) },
-    );
-    expect(started.status).toBe(200);
-    const running = await started.json();
-    expect(running.status).toBe("running");
-    expect(running.remainingSeconds).toBeGreaterThan(0);
-
     const paused = await timer.PATCH(
       new Request(`http://localhost/api/printers/${printer.id}/timer`, {
         method: "PATCH",
@@ -306,6 +379,19 @@ describe("queue + timer + maintenance API", () => {
       { params: Promise.resolve({ id: printer.id }) },
     );
     expect((await paused.json()).status).toBe("paused");
+
+    const second = await queue.POST(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: model.id }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(second.status).toBe(201);
+    const queuedItem = await second.json();
+    expect(queuedItem.status).toBe("queued");
+    expect(queuedItem.position).toBe(1);
 
     const removed = await queueItem.DELETE(
       new Request(
@@ -322,7 +408,54 @@ describe("queue + timer + maintenance API", () => {
       new Request(`http://localhost/api/printers/${printer.id}/queue`),
       { params: Promise.resolve({ id: printer.id }) },
     );
-    expect(await remaining.json()).toHaveLength(0);
+    const remainingItems = await remaining.json();
+    expect(remainingItems).toHaveLength(1);
+    expect(remainingItems[0].id).toBe(queuedItem.id);
+
+    const startedNext = await queueItem.PATCH(
+      new Request(
+        `http://localhost/api/printers/${printer.id}/queue/${queuedItem.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "start", durationSeconds: 60 }),
+        },
+      ),
+      {
+        params: Promise.resolve({ id: printer.id, itemId: queuedItem.id }),
+      },
+    );
+    expect(startedNext.status).toBe(200);
+    expect((await startedNext.json()).status).toBe("printing");
+  });
+
+  it("requires duration when starting a print with an empty active slot", async () => {
+    const { prisma } = await import("@/lib/db");
+    const printers = await import("@/app/api/printers/route");
+    const queue = await import("@/app/api/printers/[id]/queue/route");
+
+    const printerRes = await printers.POST(
+      new Request("http://localhost/api/printers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Needs duration" }),
+      }),
+    );
+    const printer = await printerRes.json();
+    const model = await prisma.model.create({ data: { name: "Timed model" } });
+
+    const missing = await queue.POST(
+      new Request(`http://localhost/api/printers/${printer.id}/queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: model.id }),
+      }),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toEqual({
+      error: "Duration is required to start a print",
+    });
   });
 
   it("reports elapsed timers as completed on GET without mutating storage", async () => {

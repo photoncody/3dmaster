@@ -5,6 +5,7 @@ import { handleApiError, jsonOk } from "@/lib/api";
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
+  model: z.string().max(120).optional().default(""),
   notes: z.string().max(2000).optional().default(""),
 });
 
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     const printer = await prisma.printer.create({
       data: {
         name: body.name,
+        model: body.model,
         notes: body.notes,
         maintenance: { create: {} },
         timer: { create: {} },

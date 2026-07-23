@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { apiJson, useJson } from "@/lib/client-api";
 import { downloadForSlicer } from "@/features/models/slicer-handoff";
 
@@ -42,6 +42,28 @@ export default function ModelsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [expandedViewer, setExpandedViewer] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const models = data ?? [];
+    const q = search.trim().toLowerCase();
+    const matched = q
+      ? models.filter((model) => {
+          const haystack = [
+            model.name,
+            model.description,
+            ...model.files.map((f) => `${f.filename} ${f.format}`),
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        })
+      : models;
+
+    return [...matched].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+  }, [data, search]);
 
   async function onUpload(e: FormEvent) {
     e.preventDefault();
@@ -95,11 +117,7 @@ export default function ModelsPage() {
   return (
     <div>
       <section className="hero">
-        <h1>Model inventory</h1>
-        <p>
-          Upload STL, 3MF, and other print files. They stay on this server until
-          you remove them. Preview is collapsed by default.
-        </p>
+        <h1>Models</h1>
       </section>
 
       <div className="panel">
@@ -144,13 +162,31 @@ export default function ModelsPage() {
 
       <div className="panel">
         <h2 className="section-title">Library</h2>
-        {loading ? <p className="muted">Loading…</p> : null}
+        <div className="toolbar">
+          <div className="field">
+            <label htmlFor="model-search">Search</label>
+            <input
+              id="model-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name, description, filename…"
+            />
+          </div>
+          <p className="muted" style={{ margin: 0, paddingBottom: 8 }}>
+            {loading
+              ? "Loading…"
+              : `${filtered.length} of ${data?.length ?? 0} models`}
+          </p>
+        </div>
         {error ? <p className="muted">{error}</p> : null}
         {mutationError ? <p className="muted">{mutationError}</p> : null}
-        {data?.length === 0 ? (
+        {!loading && (data?.length ?? 0) === 0 ? (
           <p className="muted">No models yet.</p>
         ) : null}
-        {data?.map((model) => {
+        {!loading && data && data.length > 0 && filtered.length === 0 ? (
+          <p className="muted">No models match that search.</p>
+        ) : null}
+        {filtered.map((model) => {
           const file0 = model.files[0];
           const canView =
             file0 && VIEWABLE.has(file0.format.toLowerCase());
@@ -158,17 +194,22 @@ export default function ModelsPage() {
           const open = expandedViewer === viewerKey;
 
           return (
-            <div key={model.id} className="list-item" style={{ flexDirection: "column" }}>
+            <div
+              key={model.id}
+              className="list-item compact"
+              style={{ flexDirection: "column", alignItems: "stretch" }}
+            >
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: "0.75rem",
+                  gap: "0.6rem",
                   width: "100%",
                   flexWrap: "wrap",
+                  alignItems: "center",
                 }}
               >
-                <div>
+                <div style={{ minWidth: 0, flex: "1 1 220px" }}>
                   <strong>{model.name}</strong>
                   {model.description ? (
                     <p className="muted">{model.description}</p>
@@ -183,26 +224,26 @@ export default function ModelsPage() {
                   {file0 ? (
                     <button
                       type="button"
-                      className="btn"
+                      className="btn sm"
                       onClick={() => onDownload(model, file0)}
                     >
-                      Download for slicer
+                      Download
                     </button>
                   ) : null}
                   {canView ? (
                     <button
                       type="button"
-                      className="btn secondary"
+                      className="btn secondary sm"
                       onClick={() =>
                         setExpandedViewer(open ? null : viewerKey)
                       }
                     >
-                      {open ? "Hide 3D view" : "Show 3D view"}
+                      {open ? "Hide 3D" : "3D view"}
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    className="btn danger"
+                    className="btn danger sm"
                     onClick={() => onDelete(model.id)}
                   >
                     Delete
