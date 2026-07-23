@@ -48,6 +48,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Signed slicer handoff downloads (Bambu Studio fetches without a browser session).
+  const isModelFileDownload =
+    /^\/api\/models\/[^/]+\/files\/[^/]+$/.test(pathname) &&
+    request.method === "GET" &&
+    request.nextUrl.searchParams.has("token");
+  if (isModelFileDownload) {
+    return NextResponse.next();
+  }
+
   const token = await getToken({ req: request, secret: process.env.AUTH_SECRET });
   if (!token) {
     if (pathname.startsWith("/api/")) {

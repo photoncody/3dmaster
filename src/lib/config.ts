@@ -53,6 +53,10 @@ export const config = {
   get maxUploadBytes() {
     return envInt(readEnv("MAX_UPLOAD_BYTES"), 200 * 1024 * 1024);
   },
+  /** TTL for signed slicer handoff download URLs (Bambu Studio, etc.). */
+  get slicerHandoffTokenTtlSeconds() {
+    return envInt(readEnv("SLICER_HANDOFF_TOKEN_TTL_SECONDS"), 900);
+  },
   get dryThresholdsDays() {
     return {
       green: envInt(readEnv("DRY_GREEN_DAYS"), 3),

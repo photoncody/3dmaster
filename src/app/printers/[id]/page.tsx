@@ -8,6 +8,7 @@ import {
   downloadForSlicer,
   type SlicerHandoffContext,
 } from "@/features/models/slicer-handoff";
+import { OpenInBambuStudioButton } from "@/features/models/OpenInBambuStudioButton";
 import type { AgeThresholds } from "@/lib/age-color";
 
 type ModelFile = {
@@ -562,6 +563,18 @@ export default function PrinterDetailPage({
                     Download
                   </button>
                 ) : null}
+                {activeItem.model.files[0] ? (
+                  <OpenInBambuStudioButton
+                    className="btn secondary"
+                    ctx={{
+                      modelId: activeItem.model.id,
+                      fileId: activeItem.model.files[0].id,
+                      filename: activeItem.model.files[0].filename,
+                      downloadUrl: `/api/models/${activeItem.model.id}/files/${activeItem.model.files[0].id}`,
+                    }}
+                    onError={(message) => setMutationError(message)}
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="btn accent"
@@ -751,6 +764,18 @@ export default function PrinterDetailPage({
                             Download
                           </button>
                         ) : null}
+                        {item.model.files[0] ? (
+                          <OpenInBambuStudioButton
+                            className="btn secondary"
+                            ctx={{
+                              modelId: item.model.id,
+                              fileId: item.model.files[0].id,
+                              filename: item.model.files[0].filename,
+                              downloadUrl: `/api/models/${item.model.id}/files/${item.model.files[0].id}`,
+                            }}
+                            onError={(message) => setMutationError(message)}
+                          />
+                        ) : null}
                         <button
                           type="button"
                           className="btn"
@@ -816,9 +841,9 @@ export default function PrinterDetailPage({
           <div className="modal">
             <h2 className="section-title">Print finished</h2>
             <p>
-              Next up: <strong>{nextItem.model.name}</strong>. Download it for
-              your slicer first so you know how long it will take, then start
-              the timer.
+              Next up: <strong>{nextItem.model.name}</strong>. Open it in your
+              slicer first so you know how long it will take, then start the
+              timer.
             </p>
             <div className="row" style={{ marginTop: "0.75rem" }}>
               <button
@@ -830,6 +855,18 @@ export default function PrinterDetailPage({
               >
                 Download for slicer
               </button>
+              {nextItem.model.files[0] ? (
+                <OpenInBambuStudioButton
+                  className="btn secondary"
+                  ctx={{
+                    modelId: nextItem.model.id,
+                    fileId: nextItem.model.files[0].id,
+                    filename: nextItem.model.files[0].filename,
+                    downloadUrl: `/api/models/${nextItem.model.id}/files/${nextItem.model.files[0].id}`,
+                  }}
+                  onError={(message) => setMutationError(message)}
+                />
+              ) : null}
             </div>
             <div className="row" style={{ marginTop: "0.75rem" }}>
               <div className="field" style={{ maxWidth: 100 }}>

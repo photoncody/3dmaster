@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { FormEvent, useMemo, useState } from "react";
 import { apiJson, useJson } from "@/lib/client-api";
 import { downloadForSlicer } from "@/features/models/slicer-handoff";
+import { OpenInBambuStudioButton } from "@/features/models/OpenInBambuStudioButton";
 
 const ModelViewer = dynamic(
   () => import("@/features/models/ModelViewer").then((m) => m.ModelViewer),
@@ -229,6 +230,17 @@ export default function ModelsPage() {
                     >
                       Download
                     </button>
+                  ) : null}
+                  {file0 ? (
+                    <OpenInBambuStudioButton
+                      ctx={{
+                        modelId: model.id,
+                        fileId: file0.id,
+                        filename: file0.filename,
+                        downloadUrl: `/api/models/${model.id}/files/${file0.id}`,
+                      }}
+                      onError={(message) => setMutationError(message)}
+                    />
                   ) : null}
                   {canView ? (
                     <button
