@@ -121,6 +121,9 @@ export default function PrinterDetailPage({
   const hasActivePrint = Boolean(activeItem);
   const submitLabel = hasActivePrint ? "Queue" : "Print";
   const durationSeconds = hours * 3600 + minutes * 60;
+  const selectedModel =
+    models?.find((model) => model.id === selectedModelId) ?? null;
+  const selectedFile = selectedModel?.files[0] ?? null;
 
   function dismissCompletionPrompt() {
     if (timer?.updatedAt) {
@@ -635,6 +638,41 @@ export default function PrinterDetailPage({
                 />
               </div>
             </div>
+            {selectedModel && selectedFile ? (
+              <div className="stack" style={{ gap: "0.35rem" }}>
+                <p className="muted" style={{ margin: 0 }}>
+                  {hasActivePrint
+                    ? "Optional: open the model in your slicer now, or when you start it from the queue."
+                    : "Open the model in your slicer first to learn the print time, then enter hours/minutes and Print."}
+                </p>
+                <div className="row">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() =>
+                      downloadModel({
+                        modelId: selectedModel.id,
+                        fileId: selectedFile.id,
+                        filename: selectedFile.filename,
+                        downloadUrl: `/api/models/${selectedModel.id}/files/${selectedFile.id}`,
+                      })
+                    }
+                  >
+                    Download
+                  </button>
+                  <OpenInBambuStudioButton
+                    className="btn secondary"
+                    ctx={{
+                      modelId: selectedModel.id,
+                      fileId: selectedFile.id,
+                      filename: selectedFile.filename,
+                      downloadUrl: `/api/models/${selectedModel.id}/files/${selectedFile.id}`,
+                    }}
+                    onError={(message) => setMutationError(message)}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="row">
               <button className="btn" type="submit">
                 {submitLabel}
@@ -684,34 +722,40 @@ export default function PrinterDetailPage({
                             : " · no time set"}
                         </p>
                         {isEditingStart ? (
-                          <div className="row" style={{ marginTop: "0.5rem" }}>
-                            <div className="field" style={{ maxWidth: 100 }}>
-                              <label htmlFor={`start-h-${item.id}`}>Hours</label>
-                              <input
-                                id={`start-h-${item.id}`}
-                                type="number"
-                                min={0}
-                                max={48}
-                                value={startHours}
-                                onChange={(e) =>
-                                  setStartHours(Number(e.target.value))
-                                }
-                              />
-                            </div>
-                            <div className="field" style={{ maxWidth: 100 }}>
-                              <label htmlFor={`start-m-${item.id}`}>
-                                Minutes
-                              </label>
-                              <input
-                                id={`start-m-${item.id}`}
-                                type="number"
-                                min={0}
-                                max={59}
-                                value={startMinutes}
-                                onChange={(e) =>
-                                  setStartMinutes(Number(e.target.value))
-                                }
-                              />
+                          <div className="stack" style={{ marginTop: "0.5rem", gap: "0.35rem" }}>
+                            <p className="muted" style={{ margin: 0 }}>
+                              Slice the model to get the print time, then enter
+                              it below and confirm start.
+                            </p>
+                            <div className="row">
+                              <div className="field" style={{ maxWidth: 100 }}>
+                                <label htmlFor={`start-h-${item.id}`}>Hours</label>
+                                <input
+                                  id={`start-h-${item.id}`}
+                                  type="number"
+                                  min={0}
+                                  max={48}
+                                  value={startHours}
+                                  onChange={(e) =>
+                                    setStartHours(Number(e.target.value))
+                                  }
+                                />
+                              </div>
+                              <div className="field" style={{ maxWidth: 100 }}>
+                                <label htmlFor={`start-m-${item.id}`}>
+                                  Minutes
+                                </label>
+                                <input
+                                  id={`start-m-${item.id}`}
+                                  type="number"
+                                  min={0}
+                                  max={59}
+                                  value={startMinutes}
+                                  onChange={(e) =>
+                                    setStartMinutes(Number(e.target.value))
+                                  }
+                                />
+                              </div>
                             </div>
                           </div>
                         ) : null}
@@ -733,21 +777,6 @@ export default function PrinterDetailPage({
                         >
                           Down
                         </button>
-                        {!hasActivePrint ? (
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => {
-                              if (needsTime && !isEditingStart) {
-                                setStartingItemId(item.id);
-                                return;
-                              }
-                              void startQueueItem(item);
-                            }}
-                          >
-                            {isEditingStart ? "Confirm start" : "Start"}
-                          </button>
-                        ) : null}
                         {item.model.files[0] ? (
                           <button
                             type="button"
@@ -775,6 +804,21 @@ export default function PrinterDetailPage({
                             }}
                             onError={(message) => setMutationError(message)}
                           />
+                        ) : null}
+                        {!hasActivePrint ? (
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => {
+                              if (needsTime && !isEditingStart) {
+                                setStartingItemId(item.id);
+                                return;
+                              }
+                              void startQueueItem(item);
+                            }}
+                          >
+                            {isEditingStart ? "Confirm start" : "Start"}
+                          </button>
                         ) : null}
                         <button
                           type="button"
