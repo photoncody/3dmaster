@@ -23,6 +23,7 @@ import {
   buildBambuStudioDeepLink,
   canOpenInBambuStudio,
   detectClientOsFamily,
+  withBambuStudioFilenameHint,
 } from "@/features/models/adapters/bambu-studio";
 import { ZodError, z } from "zod";
 
@@ -211,11 +212,15 @@ describe("slicer handoff adapters", () => {
       filename: "part.stl",
       downloadUrl: "/x",
     });
-    expect(stl.map((a) => a.id)).toEqual([
-      "stl-only",
-      "any",
-      "bambu-studio",
-    ]);
+    expect(stl.map((a) => a.id)).toEqual(["stl-only", "any"]);
+
+    const threeMf = listSlicerAdapters({
+      modelId: "m1",
+      fileId: "f1",
+      filename: "part.3mf",
+      downloadUrl: "/x",
+    });
+    expect(threeMf.map((a) => a.id)).toEqual(["any", "bambu-studio"]);
 
     const gcode = listSlicerAdapters({
       modelId: "m1",
@@ -319,10 +324,29 @@ describe("Bambu Studio deep links", () => {
     );
   });
 
-  it("accepts common mesh formats and rejects gcode", () => {
+  it("appends &name= so Studio can detect the .3mf format", () => {
+    expect(
+      withBambuStudioFilenameHint(
+        "http://192.168.1.10:3000/api/models/m1/files/f1",
+        "Darin's Tube.3mf",
+      ),
+    ).toBe(
+      "http://192.168.1.10:3000/api/models/m1/files/f1&name=Darin's%20Tube.3mf",
+    );
+    expect(
+      withBambuStudioFilenameHint(
+        "https://workshop.local/api/models/m1/files/f1?token=abc",
+        "part.3mf",
+      ),
+    ).toBe(
+      "https://workshop.local/api/models/m1/files/f1?token=abc&name=part.3mf",
+    );
+  });
+
+  it("only accepts .3mf for URL handoff (Studio protocol limitation)", () => {
     expect(canOpenInBambuStudio("part.3mf")).toBe(true);
-    expect(canOpenInBambuStudio("part.STL")).toBe(true);
-    expect(canOpenInBambuStudio("part.obj")).toBe(true);
+    expect(canOpenInBambuStudio("part.STL")).toBe(false);
+    expect(canOpenInBambuStudio("part.obj")).toBe(false);
     expect(canOpenInBambuStudio("part.gcode")).toBe(false);
     expect(canOpenInBambuStudio("part.step")).toBe(false);
   });

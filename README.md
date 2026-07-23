@@ -113,9 +113,9 @@ See [`.env.example`](.env.example) for all options (upload limits, drying/cleani
 v1 supports **download for slicer** plus **Open in Bambu Studio** (deep link) from the models library and printer queue pages.
 
 - **Download** always works in the browser (session cookie when auth is on).
-- **Open in Bambu Studio** asks Studio to fetch the file from a short-lived absolute URL. With `AUTH_ENABLED=true`, that URL includes a signed token so Studio can download without a browser session. Studio must be able to reach the same host you used in the browser (LAN IP / reverse-proxy hostname — not only a Docker-internal name).
+- **Open in Bambu Studio** asks Studio to fetch the file from a short-lived absolute URL. With `AUTH_ENABLED=true`, that URL includes a signed token so Studio can download without a browser session. Studio must be able to reach the same host you used in the browser (LAN IP / reverse-proxy hostname — not only a Docker-internal name). The deep link appends `&name=… .3mf` so Studio can recognize the format (API paths end in a file id, not a filename).
 - URL schemes differ by OS (Windows/Linux: `bambustudio://open?file=…`, macOS: `bambustudioopen://…`). Newer Bambu Studio builds may prompt to allow non-MakerWorld hosts.
-- Supported handoff formats: `.3mf`, `.stl`, `.obj`. Use Download for other types (e.g. `.gcode`, `.step`).
+- Supported handoff format: `.3mf` only (Bambu Studio’s URL protocol rejects other extensions before download). Use **Download** for `.stl`, `.obj`, `.gcode`, etc.
 - Extension point: `src/features/models/slicer-handoff.ts` (built-in Bambu adapter; more slicers can register later). Token TTL: `SLICER_HANDOFF_TOKEN_TTL_SECONDS` (default 900).
 
 ## License
