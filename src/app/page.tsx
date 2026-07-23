@@ -47,7 +47,7 @@ export default async function HomePage() {
         </Link>
         <Link href="/models" className="printer-link">
           <h3>Models</h3>
-          <p className="muted">{modelCount} in inventory · download for your slicer</p>
+          <p className="muted">{modelCount} in inventory · download or open in Bambu Studio</p>
         </Link>
         <Link href="/filament" className="printer-link">
           <h3>Filament</h3>

@@ -8,7 +8,7 @@ Manage **printers**, **model inventory**, **filament**, **maintenance**, and **p
 
 ## Features
 
-- **Model inventory** — upload `.stl`, `.3mf`, `.obj`, `.gcode`, and related formats; download for your slicer; optional collapsed-by-default in-browser 3D preview
+- **Model inventory** — upload `.stl`, `.3mf`, `.obj`, `.gcode`, and related formats; download for your slicer or open directly in Bambu Studio; optional collapsed-by-default in-browser 3D preview
 - **Per-printer print queue** — start a print with a required duration, queue more models (optional time), promote the next with a required timer
 - **Filament inventory** (shared) — grams remaining, manufacturer/material/color, bag-opened flag, one-click “dried now” with age-colored reminders; roll count creates separate inventory rows
 - **Printer maintenance** — nozzle age, last cleaned, one-click “cleaned now” with age-colored reminders
@@ -110,7 +110,13 @@ See [`.env.example`](.env.example) for all options (upload limits, drying/cleani
 
 ## Slicer handoff
 
-v1 focuses on **download for slicer** (Bambu Studio, PrusaSlicer, etc.). The codebase includes an extension point at `src/features/models/slicer-handoff.ts` for future LAN/cloud send adapters.
+v1 supports **download for slicer** plus **Open in Bambu Studio** (deep link) from the models library and printer queue pages.
+
+- **Download** always works in the browser (session cookie when auth is on).
+- **Open in Bambu Studio** asks Studio to fetch the file from a short-lived absolute URL. With `AUTH_ENABLED=true`, that URL includes a signed token so Studio can download without a browser session. Studio must be able to reach the same host you used in the browser (LAN IP / reverse-proxy hostname — not only a Docker-internal name).
+- URL schemes differ by OS (Windows/Linux: `bambustudio://open?file=…`, macOS: `bambustudioopen://…`). Newer Bambu Studio builds may prompt to allow non-MakerWorld hosts.
+- Supported handoff formats: `.3mf`, `.stl`, `.obj`. Use Download for other types (e.g. `.gcode`, `.step`).
+- Extension point: `src/features/models/slicer-handoff.ts` (built-in Bambu adapter; more slicers can register later). Token TTL: `SLICER_HANDOFF_TOKEN_TTL_SECONDS` (default 900).
 
 ## License
 

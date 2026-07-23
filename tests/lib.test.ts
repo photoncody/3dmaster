@@ -14,6 +14,16 @@ import {
   registerSlicerAdapter,
 } from "@/features/models/slicer-handoff";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api";
+import {
+  mintDownloadToken,
+  sanitizePublicOrigin,
+  verifyDownloadToken,
+} from "@/lib/download-token";
+import {
+  buildBambuStudioDeepLink,
+  canOpenInBambuStudio,
+  detectClientOsFamily,
+} from "@/features/models/adapters/bambu-studio";
 import { ZodError, z } from "zod";
 
 describe("filamentLabel", () => {
@@ -201,7 +211,11 @@ describe("slicer handoff adapters", () => {
       filename: "part.stl",
       downloadUrl: "/x",
     });
-    expect(stl.map((a) => a.id)).toEqual(["stl-only", "any"]);
+    expect(stl.map((a) => a.id)).toEqual([
+      "stl-only",
+      "any",
+      "bambu-studio",
+    ]);
 
     const gcode = listSlicerAdapters({
       modelId: "m1",
@@ -210,6 +224,107 @@ describe("slicer handoff adapters", () => {
       downloadUrl: "/x",
     });
     expect(gcode.map((a) => a.id)).toEqual(["any"]);
+  });
+
+  it("registers the built-in Bambu Studio adapter by default", () => {
+    const adapters = listSlicerAdapters({
+      modelId: "m1",
+      fileId: "f1",
+      filename: "benchy.3mf",
+      downloadUrl: "/x",
+    });
+    expect(adapters.some((a) => a.id === "bambu-studio")).toBe(true);
+  });
+});
+
+describe("download tokens", () => {
+  it("mints and verifies a token for the expected file", () => {
+    const token = mintDownloadToken("model-1", "file-1", 60);
+    const payload = verifyDownloadToken(token, {
+      modelId: "model-1",
+      fileId: "file-1",
+    });
+    expect(payload.modelId).toBe("model-1");
+    expect(payload.fileId).toBe("file-1");
+    expect(payload.exp).toBeGreaterThan(Date.now());
+  });
+
+  it("rejects tokens for a different file", () => {
+    const token = mintDownloadToken("model-1", "file-1", 60);
+    expect(() =>
+      verifyDownloadToken(token, { modelId: "model-1", fileId: "other" }),
+    ).toThrow(/Invalid download token/);
+  });
+
+  it("rejects expired tokens", () => {
+    const token = mintDownloadToken("model-1", "file-1", -1);
+    expect(() =>
+      verifyDownloadToken(token, { modelId: "model-1", fileId: "file-1" }),
+    ).toThrow(/expired/);
+  });
+
+  it("rejects tampered tokens", () => {
+    const token = mintDownloadToken("model-1", "file-1", 60);
+    const [body] = token.split(".");
+    expect(() =>
+      verifyDownloadToken(`${body}.dGFtcGVyZWQ`, {
+        modelId: "model-1",
+        fileId: "file-1",
+      }),
+    ).toThrow(/Invalid download token/);
+  });
+
+  it("sanitizes public origins", () => {
+    expect(sanitizePublicOrigin("https://print.local:3000")).toBe(
+      "https://print.local:3000",
+    );
+    expect(sanitizePublicOrigin("http://192.168.1.10")).toBe(
+      "http://192.168.1.10",
+    );
+    expect(() => sanitizePublicOrigin("javascript:alert(1)")).toThrow(
+      /Invalid origin/,
+    );
+    expect(() =>
+      sanitizePublicOrigin("https://evil.example/path"),
+    ).toThrow(/Invalid origin/);
+  });
+});
+
+describe("Bambu Studio deep links", () => {
+  it("detects macOS vs other platforms", () => {
+    expect(
+      detectClientOsFamily(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+      ),
+    ).toBe("macos");
+    expect(
+      detectClientOsFamily(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      ),
+    ).toBe("other");
+    expect(
+      detectClientOsFamily(
+        "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+      ),
+    ).toBe("other");
+  });
+
+  it("builds OS-specific deep links", () => {
+    const fileUrl = "https://workshop.local/api/models/m1/files/f1?token=abc";
+    expect(buildBambuStudioDeepLink(fileUrl, "other")).toBe(
+      `bambustudio://open?file=${encodeURIComponent(fileUrl)}`,
+    );
+    expect(buildBambuStudioDeepLink(fileUrl, "macos")).toBe(
+      `bambustudioopen://${encodeURIComponent(fileUrl)}`,
+    );
+  });
+
+  it("accepts common mesh formats and rejects gcode", () => {
+    expect(canOpenInBambuStudio("part.3mf")).toBe(true);
+    expect(canOpenInBambuStudio("part.STL")).toBe(true);
+    expect(canOpenInBambuStudio("part.obj")).toBe(true);
+    expect(canOpenInBambuStudio("part.gcode")).toBe(false);
+    expect(canOpenInBambuStudio("part.step")).toBe(false);
   });
 });
 

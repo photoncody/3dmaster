@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { handleApiError, jsonError } from "@/lib/api";
 import { resolveModelStoragePath, sanitizeFilename } from "@/lib/storage";
+import { verifyDownloadToken } from "@/lib/download-token";
+import { config } from "@/lib/config";
 
 type Ctx = { params: Promise<{ id: string; fileId: string }> };
 
@@ -13,10 +15,27 @@ function contentDisposition(filename: string): string {
   return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(safe)}`;
 }
 
-export async function GET(_request: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   try {
-    await requireAuth();
     const { id, fileId } = await ctx.params;
+    const token = new URL(request.url).searchParams.get("token");
+
+    if (token) {
+      if (!config.authEnabled) {
+        // Tokens are only minted when auth is on; ignore stray tokens.
+      } else {
+        try {
+          verifyDownloadToken(token, { modelId: id, fileId });
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Invalid download token";
+          return jsonError(message, 401);
+        }
+      }
+    } else {
+      await requireAuth();
+    }
+
     const file = await prisma.modelFile.findFirst({
       where: { id: fileId, modelId: id },
     });

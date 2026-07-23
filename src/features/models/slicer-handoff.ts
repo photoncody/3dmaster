@@ -1,7 +1,9 @@
 /**
- * Extension point for future slicer / printer handoff (Bambu LAN, etc.).
- * v1 ships download-only; register adapters here later.
+ * Extension point for slicer / printer handoff.
+ * Built-in: Bambu Studio deep-link open. Download remains the universal fallback.
  */
+import { bambuStudioAdapter } from "@/features/models/adapters/bambu-studio";
+
 export type SlicerHandoffContext = {
   modelId: string;
   fileId: string;
@@ -19,19 +21,42 @@ export type SlicerHandoffAdapter = {
 };
 
 const adapters: SlicerHandoffAdapter[] = [];
+let defaultsReady = false;
 
 export function registerSlicerAdapter(adapter: SlicerHandoffAdapter) {
   adapters.push(adapter);
 }
 
+/** Register built-in adapters (idempotent). Call from client UI before listing/sending. */
+export function registerDefaultSlicerAdapters() {
+  if (defaultsReady) return;
+  defaultsReady = true;
+  if (!adapters.some((a) => a.id === bambuStudioAdapter.id)) {
+    registerSlicerAdapter(bambuStudioAdapter);
+  }
+}
+
 export function listSlicerAdapters(
   ctx: SlicerHandoffContext,
 ): SlicerHandoffAdapter[] {
+  registerDefaultSlicerAdapters();
   return adapters.filter((a) => a.canHandle(ctx));
 }
 
 export function clearSlicerAdapters() {
   adapters.length = 0;
+  defaultsReady = false;
+}
+
+export async function sendToSlicer(
+  adapterId: string,
+  ctx: SlicerHandoffContext,
+): Promise<void> {
+  const adapter = listSlicerAdapters(ctx).find((a) => a.id === adapterId);
+  if (!adapter) {
+    throw new Error("This slicer cannot open this file type");
+  }
+  await adapter.send(ctx);
 }
 
 export async function downloadForSlicer(ctx: SlicerHandoffContext) {

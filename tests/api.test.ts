@@ -8,8 +8,19 @@ const authMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAuth: async () => authMock.session,
+  requireAuth: async () => {
+    const enabled = ["1", "true", "yes", "on"].includes(
+      (process.env.AUTH_ENABLED || "false").toLowerCase(),
+    );
+    if (!enabled) return null;
+    if (!authMock.session?.user) throw new Error("Unauthorized");
+    return authMock.session;
+  },
   requireBootstrapAdmin: async () => {
+    const enabled = ["1", "true", "yes", "on"].includes(
+      (process.env.AUTH_ENABLED || "false").toLowerCase(),
+    );
+    if (!enabled) return authMock.session;
     const bootstrap = process.env.AUTH_BOOTSTRAP_USER || "";
     if (!bootstrap || authMock.session?.user?.name !== bootstrap) {
       throw new Error("Forbidden");
@@ -646,6 +657,94 @@ describe("queue + timer + maintenance API", () => {
     expect(await res.json()).toEqual({
       error: "Name must be at most 200 characters",
     });
+  });
+
+  it("creates a slicer handoff URL and serves files with a signed token", async () => {
+    const models = await import("@/app/api/models/route");
+    const form = new FormData();
+    form.set("name", "Benchy");
+    form.set(
+      "file",
+      new File(["solid benchy\nendsolid benchy\n"], "benchy.3mf", {
+        type: "application/octet-stream",
+      }),
+    );
+    const created = await models.POST(
+      new Request("http://localhost/api/models", {
+        method: "POST",
+        body: form,
+      }),
+    );
+    expect(created.status).toBe(201);
+    const model = await created.json();
+    const file = model.files[0];
+
+    const slicerLink = await import(
+      "@/app/api/models/[id]/files/[fileId]/slicer-link/route"
+    );
+    const linkRes = await slicerLink.POST(
+      new Request(
+        `http://localhost/api/models/${model.id}/files/${file.id}/slicer-link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origin: "http://localhost:3000" }),
+        },
+      ),
+      { params: Promise.resolve({ id: model.id, fileId: file.id }) },
+    );
+    expect(linkRes.status).toBe(200);
+    const linkBody = await linkRes.json();
+    expect(linkBody.url).toBe(
+      `http://localhost:3000/api/models/${model.id}/files/${file.id}`,
+    );
+
+    process.env.AUTH_ENABLED = "true";
+    authMock.session = { user: { name: "admin" } };
+    const authedLink = await slicerLink.POST(
+      new Request(
+        `http://localhost/api/models/${model.id}/files/${file.id}/slicer-link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origin: "https://workshop.example" }),
+        },
+      ),
+      { params: Promise.resolve({ id: model.id, fileId: file.id }) },
+    );
+    expect(authedLink.status).toBe(200);
+    const authedBody = await authedLink.json();
+    expect(authedBody.url).toMatch(
+      new RegExp(
+        `^https://workshop\\.example/api/models/${model.id}/files/${file.id}\\?token=`,
+      ),
+    );
+
+    const token = new URL(authedBody.url).searchParams.get("token");
+    expect(token).toBeTruthy();
+
+    authMock.session = null;
+    const fileRoute = await import(
+      "@/app/api/models/[id]/files/[fileId]/route"
+    );
+    const denied = await fileRoute.GET(
+      new Request(
+        `http://localhost/api/models/${model.id}/files/${file.id}`,
+      ),
+      { params: Promise.resolve({ id: model.id, fileId: file.id }) },
+    );
+    expect(denied.status).toBe(401);
+
+    const allowed = await fileRoute.GET(
+      new Request(
+        `http://localhost/api/models/${model.id}/files/${file.id}?token=${encodeURIComponent(token!)}`,
+      ),
+      { params: Promise.resolve({ id: model.id, fileId: file.id }) },
+    );
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("solid benchy");
+
+    process.env.AUTH_ENABLED = "false";
   });
 });
 
