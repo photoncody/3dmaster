@@ -3,8 +3,12 @@ import type {
   SlicerHandoffContext,
 } from "@/features/models/slicer-handoff";
 
-/** Formats Bambu Studio can reliably open via URL handoff. */
-export const BAMBU_STUDIO_FORMATS = new Set(["3mf", "stl", "obj"]);
+/**
+ * Formats Bambu Studio's URL protocol handler accepts.
+ * Studio checks the filename suffix before downloading and currently only
+ * allows `.3mf` (see Plater::import_model_id). Use Download for `.stl`/`.obj`.
+ */
+export const BAMBU_STUDIO_FORMATS = new Set(["3mf"]);
 
 export type ClientOsFamily = "macos" | "other";
 
@@ -29,6 +33,22 @@ export function extensionOf(filename: string): string {
 
 export function canOpenInBambuStudio(filename: string): boolean {
   return BAMBU_STUDIO_FORMATS.has(extensionOf(filename));
+}
+
+/**
+ * Bambu Studio derives the local filename (and format check) from either the
+ * URL path basename or a trailing `&name=` hint. Our API paths end in a file
+ * id with no extension, so we must append `&name={file.3mf}`. Studio strips
+ * that suffix before the HTTP GET (it looks specifically for `&name=`, not
+ * `?name=`).
+ */
+export function withBambuStudioFilenameHint(
+  absoluteDownloadUrl: string,
+  filename: string,
+): string {
+  const base = filename.split(/[/\\]/).pop() || filename;
+  if (!base) return absoluteDownloadUrl;
+  return `${absoluteDownloadUrl}&name=${encodeURIComponent(base)}`;
 }
 
 /**
@@ -84,7 +104,8 @@ export const bambuStudioAdapter: SlicerHandoffAdapter = {
   canHandle: (ctx) => canOpenInBambuStudio(ctx.filename),
   async send(ctx) {
     const absoluteUrl = await resolveAbsoluteDownloadUrl(ctx);
-    const deepLink = buildBambuStudioDeepLink(absoluteUrl);
+    const urlWithName = withBambuStudioFilenameHint(absoluteUrl, ctx.filename);
+    const deepLink = buildBambuStudioDeepLink(urlWithName);
     openDeepLink(deepLink);
   },
 };
