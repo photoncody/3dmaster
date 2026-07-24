@@ -221,6 +221,117 @@ describe("filament API", () => {
     );
   });
 
+  it("loads filament onto a printer and unloads it", async () => {
+    const printersApi = await import("@/app/api/printers/route");
+    const { POST, GET } = await import("@/app/api/filament/route");
+    const { PATCH, GET: getFilament } = await import(
+      "@/app/api/filament/[id]/route"
+    );
+    const { GET: getPrinter } = await import("@/app/api/printers/[id]/route");
+
+    const printerRes = await printersApi.POST(
+      new Request("http://localhost/api/printers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Workshop A" }),
+      }),
+    );
+    const printer = await printerRes.json();
+
+    const created = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          manufacturer: "Bambu",
+          material: "PLA",
+          color: "Red",
+          startingGrams: 1000,
+          remainingGrams: 800,
+          rollCount: 1,
+        }),
+      }),
+    );
+    const roll = await created.json();
+
+    const loaded = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loadedPrinterId: printer.id }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(loaded.status).toBe(200);
+    const loadedRoll = await loaded.json();
+    expect(loadedRoll.loadedPrinterId).toBe(printer.id);
+    expect(loadedRoll.loadedPrinter).toEqual({
+      id: printer.id,
+      name: "Workshop A",
+    });
+
+    const listed = await GET();
+    const inventory = await listed.json();
+    const listedRoll = inventory.find((item: { id: string }) => item.id === roll.id);
+    expect(listedRoll.loadedPrinter.name).toBe("Workshop A");
+
+    const printerDetail = await getPrinter(
+      new Request(`http://localhost/api/printers/${printer.id}`),
+      { params: Promise.resolve({ id: printer.id }) },
+    );
+    const detail = await printerDetail.json();
+    expect(detail.loadedFilaments).toHaveLength(1);
+    expect(detail.loadedFilaments[0].id).toBe(roll.id);
+
+    const unloaded = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loadedPrinterId: null }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(unloaded.status).toBe(200);
+    const unloadedRoll = await unloaded.json();
+    expect(unloadedRoll.loadedPrinterId).toBeNull();
+    expect(unloadedRoll.loadedPrinter).toBeNull();
+
+    const single = await getFilament(
+      new Request(`http://localhost/api/filament/${roll.id}`),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect((await single.json()).loadedPrinter).toBeNull();
+  });
+
+  it("rejects loading filament onto a missing printer", async () => {
+    const { POST } = await import("@/app/api/filament/route");
+    const { PATCH } = await import("@/app/api/filament/[id]/route");
+
+    const created = await POST(
+      new Request("http://localhost/api/filament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: "PLA",
+          startingGrams: 1000,
+          rollCount: 1,
+        }),
+      }),
+    );
+    const roll = await created.json();
+
+    const missing = await PATCH(
+      new Request(`http://localhost/api/filament/${roll.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loadedPrinterId: "missing-printer-id" }),
+      }),
+      { params: Promise.resolve({ id: roll.id }) },
+    );
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "Printer not found" });
+  });
+
   it("rejects impossible filament bounds", async () => {
     const { POST } = await import("@/app/api/filament/route");
     const res = await POST(

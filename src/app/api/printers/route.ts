@@ -17,6 +17,9 @@ export async function GET() {
       include: {
         maintenance: true,
         timer: true,
+        loadedFilaments: {
+          select: { id: true, name: true, material: true, color: true },
+        },
         _count: { select: { queueItems: true } },
       },
     });

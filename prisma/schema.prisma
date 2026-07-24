@@ -16,15 +16,16 @@ model User {
 }
 
 model Printer {
-  id          String               @id @default(cuid())
-  name        String
-  model       String               @default("")
-  notes       String               @default("")
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  queueItems  PrintQueueItem[]
-  maintenance PrinterMaintenance?
-  timer       PrintTimer?
+  id              String               @id @default(cuid())
+  name            String
+  model           String               @default("")
+  notes           String               @default("")
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  queueItems      PrintQueueItem[]
+  maintenance     PrinterMaintenance?
+  timer           PrintTimer?
+  loadedFilaments FilamentRoll[]
 }
 
 model Model {
@@ -75,8 +76,12 @@ model FilamentRoll {
   openedFromBag   Boolean   @default(false)
   lastDriedAt     DateTime?
   notes           String    @default("")
+  loadedPrinterId String?
+  loadedPrinter   Printer?  @relation(fields: [loadedPrinterId], references: [id], onDelete: SetNull)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([loadedPrinterId])
 }
 
 model PrinterMaintenance {

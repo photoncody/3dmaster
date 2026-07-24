@@ -31,6 +31,9 @@ export async function GET() {
     await requireAuth();
     const rolls = await prisma.filamentRoll.findMany({
       orderBy: [{ manufacturer: "asc" }, { material: "asc" }, { color: "asc" }],
+      include: {
+        loadedPrinter: { select: { id: true, name: true } },
+      },
     });
     return jsonOk(rolls);
   } catch (err) {
