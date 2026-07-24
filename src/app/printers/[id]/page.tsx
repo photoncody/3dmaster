@@ -580,52 +580,6 @@ export default function PrinterDetailPage({
         {configError ? <p className="muted">{configError}</p> : null}
 
         <div className="panel">
-          <h2 className="section-title">Loaded filament</h2>
-          {(printer.loadedFilaments?.length ?? 0) === 0 ? (
-            <p className="muted">No filament loaded on this printer.</p>
-          ) : (
-            <div className="stack">
-              {printer.loadedFilaments.map((roll) => (
-                <div key={roll.id} className="list-item">
-                  <div>
-                    <strong>{filamentTitle(roll)}</strong>
-                    <div className="muted">
-                      {[roll.manufacturer, `${Math.round(roll.remainingGrams)}g left`]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-                  </div>
-                  <div className="row">
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      onClick={() => unloadFilament(roll.id)}
-                    >
-                      Unload
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="row" style={{ marginTop: "0.75rem" }}>
-            <button
-              type="button"
-              className="btn"
-              onClick={openLoadFilament}
-              disabled={availableFilaments.length === 0}
-              title={
-                availableFilaments.length
-                  ? "Load a filament roll"
-                  : "No available filament rolls"
-              }
-            >
-              Load filament
-            </button>
-          </div>
-        </div>
-
-        <div className="panel">
           <h2 className="section-title">Print queue</h2>
 
           {activeItem ? (
@@ -951,6 +905,52 @@ export default function PrinterDetailPage({
                 })}
               </>
             ) : null}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2 className="section-title">Loaded filament</h2>
+          {(printer.loadedFilaments?.length ?? 0) === 0 ? (
+            <p className="muted">No filament loaded on this printer.</p>
+          ) : (
+            <div className="stack">
+              {printer.loadedFilaments.map((roll) => (
+                <div key={roll.id} className="list-item">
+                  <div>
+                    <strong>{filamentTitle(roll)}</strong>
+                    <div className="muted">
+                      {[roll.manufacturer, `${Math.round(roll.remainingGrams)}g left`]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => unloadFilament(roll.id)}
+                    >
+                      Unload
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="row" style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={openLoadFilament}
+              disabled={availableFilaments.length === 0}
+              title={
+                availableFilaments.length
+                  ? "Load a filament roll"
+                  : "No available filament rolls"
+              }
+            >
+              Load filament
+            </button>
           </div>
         </div>
 
