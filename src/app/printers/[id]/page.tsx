@@ -89,6 +89,19 @@ function formatDuration(total: number) {
   return `${m}m`;
 }
 
+function remainingPct(roll: { remainingGrams: number; startingGrams: number }) {
+  return Math.round(
+    (roll.remainingGrams / Math.max(roll.startingGrams, 1)) * 100,
+  );
+}
+
+function meterLevel(pct: number) {
+  if (pct >= 50) return "green";
+  if (pct >= 25) return "yellow";
+  if (pct >= 10) return "orange";
+  return "red";
+}
+
 export default function PrinterDetailPage({
   params,
 }: {
@@ -116,6 +129,9 @@ export default function PrinterDetailPage({
   const [loadFilamentOpen, setLoadFilamentOpen] = useState(false);
   const [selectedFilamentId, setSelectedFilamentId] = useState("");
   const [filamentBusy, setFilamentBusy] = useState(false);
+  const [remainingInputs, setRemainingInputs] = useState<Record<string, string>>(
+    {},
+  );
   const primaryDialogButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: printer, error, loading } = useJson<Printer>(
@@ -158,6 +174,18 @@ export default function PrinterDetailPage({
     }
     setConsentOpen(false);
   }
+
+  useEffect(() => {
+    if (!printer?.loadedFilaments) return;
+    setRemainingInputs(
+      Object.fromEntries(
+        printer.loadedFilaments.map((roll) => [
+          roll.id,
+          String(roll.remainingGrams),
+        ]),
+      ),
+    );
+  }, [printer?.loadedFilaments]);
 
   useEffect(() => {
     if (!timer) return;
@@ -369,6 +397,26 @@ export default function PrinterDetailPage({
     } catch (err) {
       setMutationError(
         err instanceof Error ? err.message : "Failed to unload filament",
+      );
+    }
+  }
+
+  async function updateRemaining(filamentId: string, value: string) {
+    const remainingGrams = Number(value);
+    setMutationError(null);
+    if (!Number.isFinite(remainingGrams)) {
+      setMutationError("Remaining grams must be a number");
+      return;
+    }
+    try {
+      await apiJson(`/api/filament/${filamentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ remainingGrams }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(
+        err instanceof Error ? err.message : "Failed to update filament",
       );
     }
   }
@@ -914,27 +962,70 @@ export default function PrinterDetailPage({
             <p className="muted">No filament loaded on this printer.</p>
           ) : (
             <div className="stack">
-              {printer.loadedFilaments.map((roll) => (
-                <div key={roll.id} className="list-item">
-                  <div>
-                    <strong>{filamentTitle(roll)}</strong>
-                    <div className="muted">
-                      {[roll.manufacturer, `${Math.round(roll.remainingGrams)}g left`]
-                        .filter(Boolean)
-                        .join(" · ")}
+              {printer.loadedFilaments.map((roll) => {
+                const pct = remainingPct(roll);
+                return (
+                  <div key={roll.id} className="list-item">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong>{filamentTitle(roll)}</strong>
+                      {roll.manufacturer ? (
+                        <div className="muted">{roll.manufacturer}</div>
+                      ) : null}
+                      <div className="meter" style={{ marginTop: "0.5rem" }}>
+                        <div className="meter-track" aria-hidden="true">
+                          <div
+                            className="meter-fill"
+                            data-level={meterLevel(pct)}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, pct))}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="row" style={{ gap: "0.4rem" }}>
+                          <span className="meter-label">
+                            {pct}% · {roll.startingGrams}g
+                          </span>
+                          <input
+                            className="inline-remaining"
+                            type="number"
+                            min={0}
+                            aria-label={`Remaining grams for ${filamentTitle(roll)}`}
+                            title="Update remaining grams"
+                            value={
+                              remainingInputs[roll.id] ??
+                              String(roll.remainingGrams)
+                            }
+                            onChange={(e) =>
+                              setRemainingInputs((inputs) => ({
+                                ...inputs,
+                                [roll.id]: e.target.value,
+                              }))
+                            }
+                            onBlur={(e) =>
+                              updateRemaining(roll.id, e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                          <span className="meter-label">g left</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="row">
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => unloadFilament(roll.id)}
+                      >
+                        Unload
+                      </button>
                     </div>
                   </div>
-                  <div className="row">
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      onClick={() => unloadFilament(roll.id)}
-                    >
-                      Unload
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <div className="row" style={{ marginTop: "0.75rem" }}>
