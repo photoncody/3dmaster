@@ -5,6 +5,11 @@ import { AgeText } from "@/components/AgeText";
 import { apiJson, useJson } from "@/lib/client-api";
 import type { AgeThresholds } from "@/lib/age-color";
 
+type LoadedPrinter = {
+  id: string;
+  name: string;
+};
+
 type Filament = {
   id: string;
   name: string;
@@ -17,6 +22,13 @@ type Filament = {
   openedFromBag: boolean;
   lastDriedAt: string | null;
   notes: string;
+  loadedPrinterId: string | null;
+  loadedPrinter: LoadedPrinter | null;
+};
+
+type PrinterOption = {
+  id: string;
+  name: string;
 };
 
 type AppConfig = {
@@ -30,7 +42,8 @@ type SortKey =
   | "remaining"
   | "percent"
   | "dried"
-  | "bag";
+  | "bag"
+  | "status";
 
 type SortDir = "asc" | "desc";
 
@@ -60,6 +73,7 @@ function compareText(a: string, b: string) {
 export default function FilamentPage() {
   const [refresh, setRefresh] = useState(0);
   const { data, error, loading } = useJson<Filament[]>("/api/filament", refresh);
+  const { data: printers } = useJson<PrinterOption[]>("/api/printers", refresh);
   const { data: appConfig, error: configError } = useJson<AppConfig>("/api/config");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -69,6 +83,9 @@ export default function FilamentPage() {
   const [sortKey, setSortKey] = useState<SortKey>("material");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [editing, setEditing] = useState<Filament | null>(null);
+  const [loadingRoll, setLoadingRoll] = useState<Filament | null>(null);
+  const [loadPrinterId, setLoadPrinterId] = useState("");
+  const [loadBusy, setLoadBusy] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editForm, setEditForm] = useState({
     manufacturer: "",
@@ -111,6 +128,8 @@ export default function FilamentPage() {
             roll.color,
             roll.notes,
             roll.openedFromBag ? "opened" : "sealed",
+            roll.loadedPrinter ? "loaded" : "available",
+            roll.loadedPrinter?.name ?? "",
           ]
             .join(" ")
             .toLowerCase();
@@ -146,6 +165,18 @@ export default function FilamentPage() {
         case "bag":
           result = Number(a.openedFromBag) - Number(b.openedFromBag);
           break;
+        case "status": {
+          const aLoaded = a.loadedPrinter ? 1 : 0;
+          const bLoaded = b.loadedPrinter ? 1 : 0;
+          result = aLoaded - bLoaded;
+          if (result === 0) {
+            result = compareText(
+              a.loadedPrinter?.name ?? "",
+              b.loadedPrinter?.name ?? "",
+            );
+          }
+          break;
+        }
       }
       return sortDir === "asc" ? result : -result;
     });
@@ -285,9 +316,49 @@ export default function FilamentPage() {
     try {
       await apiJson(`/api/filament/${id}`, { method: "DELETE" });
       if (editing?.id === id) setEditing(null);
+      if (loadingRoll?.id === id) setLoadingRoll(null);
       setRefresh((n) => n + 1);
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Failed to delete filament");
+    }
+  }
+
+  function openLoad(roll: Filament) {
+    setLoadingRoll(roll);
+    setLoadPrinterId(roll.loadedPrinterId ?? "");
+    setMutationError(null);
+  }
+
+  async function confirmLoad(e: FormEvent) {
+    e.preventDefault();
+    if (!loadingRoll || !loadPrinterId) return;
+    setLoadBusy(true);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${loadingRoll.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ loadedPrinterId: loadPrinterId }),
+      });
+      setLoadingRoll(null);
+      setLoadPrinterId("");
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to load filament");
+    } finally {
+      setLoadBusy(false);
+    }
+  }
+
+  async function unloadFilament(id: string) {
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ loadedPrinterId: null }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Failed to unload filament");
     }
   }
 
@@ -385,7 +456,7 @@ export default function FilamentPage() {
         </form>
       </div>
 
-      <div className="panel" aria-hidden={editing ? true : undefined}>
+      <div className="panel" aria-hidden={editing || loadingRoll ? true : undefined}>
         <h2 className="section-title">Inventory</h2>
         <div className="toolbar">
           <div className="field">
@@ -420,6 +491,7 @@ export default function FilamentPage() {
                 <tr>
                   <th {...sortProps("material")}>Filament</th>
                   <th {...sortProps("manufacturer")}>Maker</th>
+                  <th {...sortProps("status")}>Status</th>
                   <th {...sortProps("percent")}>Remaining</th>
                   <th {...sortProps("dried")}>Last dried</th>
                   <th {...sortProps("bag")}>Bag</th>
@@ -438,6 +510,16 @@ export default function FilamentPage() {
                         ) : null}
                       </td>
                       <td>{roll.manufacturer || "—"}</td>
+                      <td>
+                        {roll.loadedPrinter ? (
+                          <>
+                            <strong>Loaded</strong>
+                            <div className="muted">{roll.loadedPrinter.name}</div>
+                          </>
+                        ) : (
+                          <span className="muted">Available</span>
+                        )}
+                      </td>
                       <td className="remaining-cell">
                         <div className="meter">
                           <div className="meter-track" aria-hidden="true">
@@ -493,6 +575,29 @@ export default function FilamentPage() {
                       <td>{roll.openedFromBag ? "Opened" : "Sealed"}</td>
                       <td className="actions">
                         <div className="row">
+                          {roll.loadedPrinter ? (
+                            <button
+                              type="button"
+                              className="btn secondary sm"
+                              onClick={() => unloadFilament(roll.id)}
+                            >
+                              Unload
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn sm"
+                              onClick={() => openLoad(roll)}
+                              disabled={!printers?.length}
+                              title={
+                                printers?.length
+                                  ? "Load onto a printer"
+                                  : "Add a printer first"
+                              }
+                            >
+                              Load
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn sm"
@@ -531,6 +636,65 @@ export default function FilamentPage() {
           </div>
         ) : null}
       </div>
+
+      {loadingRoll ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setLoadingRoll(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setLoadingRoll(null);
+          }}
+        >
+          <div className="modal">
+            <h2 className="section-title">Load filament</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {rollTitle(loadingRoll)}
+            </p>
+            <form className="stack" onSubmit={confirmLoad}>
+              <div className="field">
+                <label htmlFor="load-printer">Printer</label>
+                <select
+                  id="load-printer"
+                  value={loadPrinterId}
+                  onChange={(e) => setLoadPrinterId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a printer…</option>
+                  {printers?.map((printer) => (
+                    <option key={printer.id} value={printer.id}>
+                      {printer.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {!printers?.length ? (
+                <p className="muted">Add a printer before loading filament.</p>
+              ) : null}
+              <div className="row">
+                <button
+                  className="btn"
+                  type="submit"
+                  disabled={loadBusy || !loadPrinterId}
+                >
+                  {loadBusy ? "Loading…" : "Load onto printer"}
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setLoadingRoll(null)}
+                  disabled={loadBusy}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <div

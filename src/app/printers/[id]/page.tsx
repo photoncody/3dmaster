@@ -47,6 +47,18 @@ type Timer = {
   updatedAt: string;
 };
 
+type FilamentRoll = {
+  id: string;
+  name: string;
+  manufacturer: string;
+  material: string;
+  color: string;
+  startingGrams: number;
+  remainingGrams: number;
+  notes: string;
+  loadedPrinterId: string | null;
+};
+
 type Printer = {
   id: string;
   name: string;
@@ -55,6 +67,7 @@ type Printer = {
   queueItems: QueueItem[];
   maintenance: Maintenance | null;
   timer: Timer | null;
+  loadedFilaments: FilamentRoll[];
 };
 
 type AppConfig = {
@@ -74,6 +87,19 @@ function formatDuration(total: number) {
   if (h > 0 && m > 0) return `${h}h ${m}m`;
   if (h > 0) return `${h}h`;
   return `${m}m`;
+}
+
+function remainingPct(roll: { remainingGrams: number; startingGrams: number }) {
+  return Math.round(
+    (roll.remainingGrams / Math.max(roll.startingGrams, 1)) * 100,
+  );
+}
+
+function meterLevel(pct: number) {
+  if (pct >= 50) return "green";
+  if (pct >= 25) return "yellow";
+  if (pct >= 10) return "orange";
+  return "red";
 }
 
 export default function PrinterDetailPage({
@@ -100,6 +126,12 @@ export default function PrinterDetailPage({
   const [editModel, setEditModel] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editBusy, setEditBusy] = useState(false);
+  const [loadFilamentOpen, setLoadFilamentOpen] = useState(false);
+  const [selectedFilamentId, setSelectedFilamentId] = useState("");
+  const [filamentBusy, setFilamentBusy] = useState(false);
+  const [remainingInputs, setRemainingInputs] = useState<Record<string, string>>(
+    {},
+  );
   const primaryDialogButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: printer, error, loading } = useJson<Printer>(
@@ -107,6 +139,10 @@ export default function PrinterDetailPage({
     refresh,
   );
   const { data: models } = useJson<Model[]>("/api/models", modelsRefresh);
+  const { data: filamentInventory } = useJson<FilamentRoll[]>(
+    "/api/filament",
+    refresh,
+  );
   const { data: timer } = useJson<Timer>(
     `/api/printers/${id}/timer`,
     refresh,
@@ -138,6 +174,18 @@ export default function PrinterDetailPage({
     }
     setConsentOpen(false);
   }
+
+  useEffect(() => {
+    if (!printer?.loadedFilaments) return;
+    setRemainingInputs(
+      Object.fromEntries(
+        printer.loadedFilaments.map((roll) => [
+          roll.id,
+          String(roll.remainingGrams),
+        ]),
+      ),
+    );
+  }, [printer?.loadedFilaments]);
 
   useEffect(() => {
     if (!timer) return;
@@ -301,6 +349,78 @@ export default function PrinterDetailPage({
     }
   }
 
+  function filamentTitle(roll: FilamentRoll) {
+    const parts = [roll.material, roll.color].filter(Boolean);
+    if (parts.length) return parts.join(" · ");
+    return roll.name || "Filament";
+  }
+
+  const availableFilaments =
+    filamentInventory?.filter((roll) => !roll.loadedPrinterId) ?? [];
+
+  function openLoadFilament() {
+    setSelectedFilamentId("");
+    setLoadFilamentOpen(true);
+    setMutationError(null);
+  }
+
+  async function confirmLoadFilament(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedFilamentId) return;
+    setFilamentBusy(true);
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${selectedFilamentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ loadedPrinterId: id }),
+      });
+      setLoadFilamentOpen(false);
+      setSelectedFilamentId("");
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(
+        err instanceof Error ? err.message : "Failed to load filament",
+      );
+    } finally {
+      setFilamentBusy(false);
+    }
+  }
+
+  async function unloadFilament(filamentId: string) {
+    setMutationError(null);
+    try {
+      await apiJson(`/api/filament/${filamentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ loadedPrinterId: null }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(
+        err instanceof Error ? err.message : "Failed to unload filament",
+      );
+    }
+  }
+
+  async function updateRemaining(filamentId: string, value: string) {
+    const remainingGrams = Number(value);
+    setMutationError(null);
+    if (!Number.isFinite(remainingGrams)) {
+      setMutationError("Remaining grams must be a number");
+      return;
+    }
+    try {
+      await apiJson(`/api/filament/${filamentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ remainingGrams }),
+      });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setMutationError(
+        err instanceof Error ? err.message : "Failed to update filament",
+      );
+    }
+  }
+
   async function timerAction(action: string) {
     setMutationError(null);
     try {
@@ -429,7 +549,7 @@ export default function PrinterDetailPage({
 
   return (
     <div>
-      <div aria-hidden={consentOpen ? true : undefined}>
+      <div aria-hidden={consentOpen || loadFilamentOpen ? true : undefined}>
         <p className="muted" style={{ marginBottom: "0.75rem" }}>
           <Link href="/printers">← Printers</Link>
         </p>
@@ -837,6 +957,95 @@ export default function PrinterDetailPage({
         </div>
 
         <div className="panel">
+          <h2 className="section-title">Loaded filament</h2>
+          {(printer.loadedFilaments?.length ?? 0) === 0 ? (
+            <p className="muted">No filament loaded on this printer.</p>
+          ) : (
+            <div className="stack">
+              {printer.loadedFilaments.map((roll) => {
+                const pct = remainingPct(roll);
+                return (
+                  <div key={roll.id} className="list-item">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong>{filamentTitle(roll)}</strong>
+                      {roll.manufacturer ? (
+                        <div className="muted">{roll.manufacturer}</div>
+                      ) : null}
+                      <div className="meter" style={{ marginTop: "0.5rem" }}>
+                        <div className="meter-track" aria-hidden="true">
+                          <div
+                            className="meter-fill"
+                            data-level={meterLevel(pct)}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, pct))}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="row" style={{ gap: "0.4rem" }}>
+                          <span className="meter-label">
+                            {pct}% · {roll.startingGrams}g
+                          </span>
+                          <input
+                            className="inline-remaining"
+                            type="number"
+                            min={0}
+                            aria-label={`Remaining grams for ${filamentTitle(roll)}`}
+                            title="Update remaining grams"
+                            value={
+                              remainingInputs[roll.id] ??
+                              String(roll.remainingGrams)
+                            }
+                            onChange={(e) =>
+                              setRemainingInputs((inputs) => ({
+                                ...inputs,
+                                [roll.id]: e.target.value,
+                              }))
+                            }
+                            onBlur={(e) =>
+                              updateRemaining(roll.id, e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                          <span className="meter-label">g left</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="row">
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => unloadFilament(roll.id)}
+                      >
+                        Unload
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="row" style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={openLoadFilament}
+              disabled={availableFilaments.length === 0}
+              title={
+                availableFilaments.length
+                  ? "Load a filament roll"
+                  : "No available filament rolls"
+              }
+            >
+              Load filament
+            </button>
+          </div>
+        </div>
+
+        <div className="panel">
           <h2 className="section-title">Maintenance</h2>
           <div className="stack">
             <p>
@@ -952,6 +1161,67 @@ export default function PrinterDetailPage({
                 Not now
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {loadFilamentOpen ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setLoadFilamentOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setLoadFilamentOpen(false);
+          }}
+        >
+          <div className="modal">
+            <h2 className="section-title">Load filament</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Choose an available roll to load onto {printer.name}.
+            </p>
+            <form className="stack" onSubmit={confirmLoadFilament}>
+              <div className="field">
+                <label htmlFor="load-filament">Filament</label>
+                <select
+                  id="load-filament"
+                  value={selectedFilamentId}
+                  onChange={(e) => setSelectedFilamentId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a roll…</option>
+                  {availableFilaments.map((roll) => (
+                    <option key={roll.id} value={roll.id}>
+                      {filamentTitle(roll)}
+                      {roll.manufacturer ? ` · ${roll.manufacturer}` : ""}
+                      {` · ${Math.round(roll.remainingGrams)}g`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {availableFilaments.length === 0 ? (
+                <p className="muted">No available filament rolls to load.</p>
+              ) : null}
+              <div className="row">
+                <button
+                  className="btn"
+                  type="submit"
+                  disabled={filamentBusy || !selectedFilamentId}
+                >
+                  {filamentBusy ? "Loading…" : "Load onto printer"}
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setLoadFilamentOpen(false)}
+                  disabled={filamentBusy}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

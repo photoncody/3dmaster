@@ -20,6 +20,13 @@ export async function GET(_request: Request, ctx: Ctx) {
       include: {
         maintenance: true,
         timer: true,
+        loadedFilaments: {
+          orderBy: [
+            { manufacturer: "asc" },
+            { material: "asc" },
+            { color: "asc" },
+          ],
+        },
         queueItems: {
           orderBy: { position: "asc" },
           include: {

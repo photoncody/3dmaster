@@ -5,6 +5,10 @@ import { handleApiError, jsonError, jsonOk } from "@/lib/api";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const filamentInclude = {
+  loadedPrinter: { select: { id: true, name: true } },
+} as const;
+
 const updateSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
@@ -18,6 +22,7 @@ const updateSchema = z
     notes: z.string().max(2000).optional(),
     markDried: z.boolean().optional(),
     lastDriedAt: z.string().datetime().nullable().optional(),
+    loadedPrinterId: z.string().min(1).max(64).nullable().optional(),
   })
   .refine(
     (data) => {
@@ -39,7 +44,10 @@ export async function GET(_request: Request, ctx: Ctx) {
   try {
     await requireAuth();
     const { id } = await ctx.params;
-    const roll = await prisma.filamentRoll.findUnique({ where: { id } });
+    const roll = await prisma.filamentRoll.findUnique({
+      where: { id },
+      include: filamentInclude,
+    });
     if (!roll) return jsonError("Filament not found", 404);
     return jsonOk(roll);
   } catch (err) {
@@ -65,6 +73,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
       );
     }
 
+    if (body.loadedPrinterId) {
+      const printer = await prisma.printer.findUnique({
+        where: { id: body.loadedPrinterId },
+        select: { id: true },
+      });
+      if (!printer) return jsonError("Printer not found", 404);
+    }
+
     const data: Record<string, unknown> = { ...body };
     delete data.markDried;
     if (body.markDried) {
@@ -76,6 +92,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const roll = await prisma.filamentRoll.update({
       where: { id },
       data,
+      include: filamentInclude,
     });
     return jsonOk(roll);
   } catch (err) {

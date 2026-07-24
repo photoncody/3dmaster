@@ -10,9 +10,9 @@ Manage **printers**, **model inventory**, **filament**, **maintenance**, and **p
 
 - **Model inventory** — upload `.stl`, `.3mf`, `.obj`, `.gcode`, and related formats; download for your slicer or open directly in Bambu Studio; optional collapsed-by-default in-browser 3D preview
 - **Per-printer print queue** — start a print with a required duration, queue more models (optional time), promote the next with a required timer
-- **Filament inventory** (shared) — grams remaining, manufacturer/material/color, bag-opened flag, one-click “dried now” with age-colored reminders; roll count creates separate inventory rows
+- **Filament inventory** (shared) — grams remaining, manufacturer/material/color, bag-opened flag, one-click “dried now” with age-colored reminders; load rolls onto printers (status shows which machine); roll count creates separate inventory rows
 - **Printer maintenance** — nozzle age, last cleaned, one-click “cleaned now” with age-colored reminders
-- **Multi-printer** — each printer has its own queue, maintenance, and integrated print timer
+- **Multi-printer** — each printer has its own queue, loaded filament, maintenance, and integrated print timer
 - **Optional auth** — off for local/dev; Docker Compose defaults to auth on with OIDC (group-gated) and/or username/password
 
 ## Quick start (Docker Compose)
